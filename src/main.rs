@@ -5,10 +5,11 @@ mod config;
 mod game;
 mod launcher;
 mod operations;
+mod tui;
 mod ui;
 
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::Cli;
 use config::Config;
 
 #[tokio::main]
@@ -24,17 +25,10 @@ async fn main() {
             }
         }
         None => {
-            if let Err(e) = run_tui(config) {
+            if let Err(e) = tui::run(config).await {
                 eprintln!("error: {e}");
                 std::process::exit(1);
             }
         }
     }
-}
-
-fn run_tui(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    // TUI event loop will be implemented in a later task
-    let _app = app::App::new(config);
-    println!("TUI mode not yet implemented. Use subcommands for now.");
-    Ok(())
 }
