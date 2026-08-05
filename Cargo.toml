@@ -1,0 +1,20 @@
+[package]
+name = "elysiae-cli"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92.0"
+
+[dependencies]
+irmin = { git = "https://github.com/elysiae-project/irmin" }
+ratatui = "0.30.2"
+crossterm = "0.29.0"
+tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
+reqwest = { version = "0.13.4", features = ["stream", "json"] }
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "6"
+thiserror = "2"
+
+[dev-dependencies]
+proptest = "1.11"
