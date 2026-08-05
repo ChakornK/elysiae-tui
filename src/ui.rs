@@ -28,18 +28,31 @@ pub fn draw(frame: &mut Frame, app: &App) {
         .block(Block::default().borders(Borders::BOTTOM));
     frame.render_widget(title, chunks[0]);
 
-    match app.current_view {
-        View::GameList => draw_game_list(frame, app, chunks[1]),
-        View::GameDetail => draw_game_detail(frame, app, chunks[1]),
-        View::Downloading => draw_downloading(frame, app, chunks[1]),
-        View::Settings => draw_settings(frame, app, chunks[1]),
+    // Error overlay takes priority
+    if let Some(ref msg) = app.error_message {
+        let error = Paragraph::new(format!("ERROR: {}\n\nPress any key to dismiss.", msg))
+            .style(Style::default().fg(Color::Red))
+            .block(Block::default().title("Error").borders(Borders::ALL));
+        frame.render_widget(error, chunks[1]);
+    } else if let Some(ref msg) = app.status_message {
+        let status = Paragraph::new(format!("{}\n\nPress any key to continue.", msg))
+            .style(Style::default().fg(Color::Yellow))
+            .block(Block::default().title("Info").borders(Borders::ALL));
+        frame.render_widget(status, chunks[1]);
+    } else {
+        match app.current_view {
+            View::GameList => draw_game_list(frame, app, chunks[1]),
+            View::GameDetail => draw_game_detail(frame, app, chunks[1]),
+            View::Downloading => draw_downloading(frame, app, chunks[1]),
+            View::Settings => draw_settings(frame, app, chunks[1]),
+        }
     }
 
     let keybinds = match app.current_view {
         View::GameList => "q=quit  enter=select  s=settings",
         View::GameDetail => "esc=back  d=download  u=update  l=launch  v=verify  p=preinstall",
         View::Downloading => "p=pause  r=resume  c=cancel",
-        View::Settings => "esc=back",
+        View::Settings => "esc=back  1=install proton  2=install jadeite",
     };
     let bottom = Paragraph::new(keybinds)
         .style(Style::default().fg(Color::DarkGray))

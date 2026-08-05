@@ -40,6 +40,9 @@ pub struct App {
     pub should_quit: bool,
     pub game_list_index: usize,
     pub status_message: Option<String>,
+    pub error_message: Option<String>,
+    pub show_resume_prompt: bool,
+    pub settings_index: usize,
 }
 
 impl App {
@@ -54,6 +57,9 @@ impl App {
             should_quit: false,
             game_list_index: 0,
             status_message: None,
+            error_message: None,
+            show_resume_prompt: false,
+            settings_index: 0,
         }
     }
 
@@ -104,16 +110,23 @@ impl App {
 
     /// Updates download progress. Transitions to GameDetail on terminal states.
     pub fn update_progress(&mut self, progress: SophonProgress) {
-        let is_terminal = matches!(
-            progress,
-            SophonProgress::Finished | SophonProgress::Error { .. }
-        );
+        match &progress {
+            SophonProgress::Finished => {
+                self.status_message = Some("Operation completed.".to_owned());
+                self.download = None;
+                self.current_view = View::GameDetail;
+                return;
+            }
+            SophonProgress::Error { message } => {
+                self.error_message = Some(message.clone());
+                self.download = None;
+                self.current_view = View::GameDetail;
+                return;
+            }
+            _ => {}
+        }
         if let Some(dl) = &mut self.download {
             dl.progress = progress;
-        }
-        if is_terminal {
-            self.download = None;
-            self.current_view = View::GameDetail;
         }
     }
 
@@ -121,5 +134,15 @@ impl App {
     pub fn finish_download(&mut self) {
         self.download = None;
         self.current_view = View::GameDetail;
+    }
+
+    /// Dismisses the current error message.
+    pub fn dismiss_error(&mut self) {
+        self.error_message = None;
+    }
+
+    /// Dismisses the current status message.
+    pub fn dismiss_status(&mut self) {
+        self.status_message = None;
     }
 }

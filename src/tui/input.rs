@@ -22,7 +22,7 @@ pub async fn handle_key(
         View::GameList => handle_game_list(app, key, client).await,
         View::GameDetail => handle_game_detail(app, key, client, progress_tx, terminal).await,
         View::Downloading => handle_downloading(app, key),
-        View::Settings => handle_settings(app, key),
+        View::Settings => handle_settings(app, key, client),
     }
 }
 
@@ -85,9 +85,17 @@ fn handle_downloading(app: &mut App, key: KeyCode) -> Result<(), Box<dyn std::er
     Ok(())
 }
 
-fn handle_settings(app: &mut App, key: KeyCode) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_settings(app: &mut App, key: KeyCode, client: &reqwest::Client) -> Result<(), Box<dyn std::error::Error>> {
     match key {
         KeyCode::Esc => app.back(),
+        KeyCode::Char('1') => {
+            actions::install_component(app, client, "proton");
+            app.status_message = Some("Installing Proton...".to_owned());
+        }
+        KeyCode::Char('2') => {
+            actions::install_component(app, client, "jadeite");
+            app.status_message = Some("Installing Jadeite...".to_owned());
+        }
         _ => {}
     }
     Ok(())
