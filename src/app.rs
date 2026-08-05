@@ -5,6 +5,7 @@ use irmin::{DownloadHandle, SophonProgress};
 
 use crate::config::Config;
 use crate::game::GameId;
+use crate::quadrant::QuadrantImage;
 
 /// Which screen the TUI is currently showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,6 +44,7 @@ pub struct App {
     pub error_message: Option<String>,
     pub show_resume_prompt: bool,
     pub settings_index: usize,
+    pub backgrounds: HashMap<GameId, QuadrantImage>,
 }
 
 impl App {
@@ -60,6 +62,7 @@ impl App {
             error_message: None,
             show_resume_prompt: false,
             settings_index: 0,
+            backgrounds: HashMap::new(),
         }
     }
 

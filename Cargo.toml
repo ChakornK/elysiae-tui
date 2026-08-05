@@ -7,6 +7,7 @@ rust-version = "1.92.0"
 [dependencies]
 irmin = { git = "https://github.com/elysiae-project/irmin" }
 ratatui = "0.30.2"
+image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg"] }
 crossterm = "0.29.0"
 tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "sync", "time", "macros"] }
 reqwest = { version = "0.13.4", features = ["stream", "json"] }

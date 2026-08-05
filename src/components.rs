@@ -36,7 +36,7 @@ pub enum ComponentError {
     HashMismatch { expected: String, actual: String },
 }
 
-const AEDES_BASE: &str = "https://aedes.elysiae.app";
+const AEDES_BASE: &str = "https://aedes.elysiae.app/components";
 
 impl ComponentManager {
     pub fn new(client: reqwest::Client, data_dir: PathBuf) -> Self {

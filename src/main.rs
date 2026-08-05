@@ -1,10 +1,12 @@
 mod app;
+mod backgrounds;
 mod cli;
 mod components;
 mod config;
 mod game;
 mod launcher;
 mod operations;
+mod quadrant;
 mod tui;
 mod ui;
 

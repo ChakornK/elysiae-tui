@@ -10,6 +10,13 @@ use irmin::SophonProgress;
 
 /// Renders the full TUI frame based on current application state.
 pub fn draw(frame: &mut Frame, app: &App) {
+    // Render background image across the full terminal area
+    if matches!(app.current_view, View::GameList | View::GameDetail) {
+        if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
+            frame.render_widget(bg, frame.area());
+        }
+    }
+
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -19,7 +26,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
         ])
         .split(frame.area());
 
-    // Top: game selector tabs (mirrors the sidebar icons in the official launcher)
+    // Top: game selector tabs
     draw_game_tabs(frame, app, outer[0]);
 
     // Middle: main content area
