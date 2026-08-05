@@ -102,6 +102,59 @@ pub enum ConfigError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    fn arb_game_id() -> impl Strategy<Value = GameId> {
+        prop_oneof![
+            Just(GameId::Bh3),
+            Just(GameId::Hk4e),
+            Just(GameId::Hkrpg),
+            Just(GameId::Nap),
+        ]
+    }
+
+    fn arb_vo_lang() -> impl Strategy<Value = String> {
+        prop_oneof![
+            Just("en-us".to_owned()),
+            Just("zh-cn".to_owned()),
+            Just("zh-tw".to_owned()),
+            Just("ko-kr".to_owned()),
+            Just("ja-jp".to_owned()),
+        ]
+    }
+
+    fn arb_game_config() -> impl Strategy<Value = GameConfig> {
+        (arb_vo_lang(), proptest::option::of("[a-z/]{1,30}")).prop_map(|(vo_lang, path)| {
+            GameConfig {
+                vo_lang,
+                install_path: path.map(PathBuf::from),
+            }
+        })
+    }
+
+    fn arb_config() -> impl Strategy<Value = Config> {
+        (
+            arb_game_id(),
+            proptest::collection::hash_map(arb_game_id(), arb_game_config(), 0..=4),
+            proptest::option::of("[a-z0-9-]{1,10}"),
+            proptest::option::of("[a-z0-9-]{1,10}"),
+        )
+            .prop_map(|(selected, games, proton, jadeite)| Config {
+                version: CURRENT_VERSION,
+                selected_game: selected,
+                games,
+                installed_components: ComponentVersions { proton, jadeite },
+            })
+    }
+
+    proptest! {
+        #[test]
+        fn config_serde_roundtrip(config in arb_config()) {
+            let json = serde_json::to_string(&config).unwrap();
+            let parsed: Config = serde_json::from_str(&json).unwrap();
+            prop_assert_eq!(config, parsed);
+        }
+    }
 
     #[test]
     fn default_config_roundtrip() {
@@ -112,26 +165,8 @@ mod tests {
     }
 
     #[test]
-    fn config_with_games_roundtrip() {
-        let mut config = Config::default();
-        config.games.insert(
-            GameId::Hk4e,
-            GameConfig {
-                vo_lang: "ja-jp".to_owned(),
-                install_path: Some(PathBuf::from("/games/hk4e")),
-            },
-        );
-        config.installed_components.proton = Some("9-27".to_owned());
-
-        let json = serde_json::to_string(&config).unwrap();
-        let parsed: Config = serde_json::from_str(&json).unwrap();
-        assert_eq!(config, parsed);
-    }
-
-    #[test]
     fn corrupt_json_falls_back_to_default() {
         let result: Result<Config, _> = serde_json::from_str("not json at all");
         assert!(result.is_err());
-        // Config::load() would return default in this case
     }
 }
