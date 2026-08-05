@@ -19,33 +19,14 @@ pub async fn handle_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match app.current_view {
-        View::GameList => handle_game_list(app, key, client).await,
-        View::GameDetail => handle_game_detail(app, key, client, progress_tx, terminal).await,
+        View::GameList | View::GameDetail => handle_main(app, key, client, progress_tx, terminal).await,
         View::Downloading => handle_downloading(app, key),
         View::Settings => handle_settings(app, key, client),
     }
 }
 
-async fn handle_game_list(
-    app: &mut App,
-    key: KeyCode,
-    client: &reqwest::Client,
-) -> Result<(), Box<dyn std::error::Error>> {
-    match key {
-        KeyCode::Char('q') => app.should_quit = true,
-        KeyCode::Up | KeyCode::Char('k') => app.prev_game(),
-        KeyCode::Down | KeyCode::Char('j') => app.next_game(),
-        KeyCode::Enter => {
-            app.enter_game_detail();
-            actions::refresh_update_info(app, client).await;
-        }
-        KeyCode::Char('s') => app.current_view = View::Settings,
-        _ => {}
-    }
-    Ok(())
-}
-
-async fn handle_game_detail(
+/// Unified handler for the main view (tabs + game detail panel).
+async fn handle_main(
     app: &mut App,
     key: KeyCode,
     client: &reqwest::Client,
@@ -53,13 +34,35 @@ async fn handle_game_detail(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match key {
-        KeyCode::Esc => app.back(),
         KeyCode::Char('q') => app.should_quit = true,
+        // Tab switching via arrow keys or Tab/BackTab
+        KeyCode::Left => {
+            app.prev_game();
+            app.active_game = app.selected_game();
+            actions::refresh_update_info(app, client).await;
+        }
+        KeyCode::Right => {
+            app.next_game();
+            app.active_game = app.selected_game();
+            actions::refresh_update_info(app, client).await;
+        }
+        KeyCode::Tab => {
+            app.next_game();
+            app.active_game = app.selected_game();
+            actions::refresh_update_info(app, client).await;
+        }
+        KeyCode::BackTab => {
+            app.prev_game();
+            app.active_game = app.selected_game();
+            actions::refresh_update_info(app, client).await;
+        }
+        // Actions on current game
         KeyCode::Char('d') => actions::start_download(app, client, progress_tx),
         KeyCode::Char('u') => actions::start_update(app, client, progress_tx),
         KeyCode::Char('l') => actions::launch_game(app, terminal)?,
         KeyCode::Char('v') => actions::start_verify(app, client, progress_tx),
         KeyCode::Char('p') => actions::start_preinstall(app, client, progress_tx),
+        KeyCode::Char('s') => app.current_view = View::Settings,
         _ => {}
     }
     Ok(())
@@ -87,7 +90,9 @@ fn handle_downloading(app: &mut App, key: KeyCode) -> Result<(), Box<dyn std::er
 
 fn handle_settings(app: &mut App, key: KeyCode, client: &reqwest::Client) -> Result<(), Box<dyn std::error::Error>> {
     match key {
-        KeyCode::Esc => app.back(),
+        KeyCode::Esc => {
+            app.current_view = View::GameList;
+        }
         KeyCode::Char('1') => {
             actions::install_component(app, client, "proton");
             app.status_message = Some("Installing Proton...".to_owned());
