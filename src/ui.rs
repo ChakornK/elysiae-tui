@@ -179,14 +179,14 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         action_lines.push(action_line('p', "Preinstall", Color::Magenta));
     }
 
-    // Calculate container heights (border adds 2 rows, padding adds 2 rows)
-    let header_h: u16 = 4; // border(2) + title + version
+    // Calculate container heights (1 row padding top + bottom)
+    let header_h: u16 = 4; // padding(2) + title + version
     let info_h: u16 = if info_lines.is_empty() {
         0
     } else {
-        info_lines.len() as u16 + 4 // border(2) + padding(2)
+        info_lines.len() as u16 + 2 // padding(2)
     };
-    let actions_h: u16 = action_lines.len() as u16 + 4; // border(2) + padding(2)
+    let actions_h: u16 = action_lines.len() as u16 + 3; // padding(2) + "Actions" title
 
     // Layout containers vertically with gaps
     let mut y = area.y + 1; // 1-row margin from top
@@ -200,7 +200,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         container_width,
         header_h.min(area.bottom().saturating_sub(y)),
     );
-    if header_rect.height >= 3 {
+    if header_rect.height >= 2 {
         render_container(frame, header_rect, bg_img);
         let inner = shrink(header_rect, 1, 1);
         let header_lines = vec![
@@ -225,14 +225,14 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     // Info container (only if there's update/preinstall info)
-    if !info_lines.is_empty() && y < area.bottom().saturating_sub(3) {
+    if !info_lines.is_empty() && y < area.bottom().saturating_sub(1) {
         let info_rect = Rect::new(
             x,
             y,
             container_width,
             info_h.min(area.bottom().saturating_sub(y)),
         );
-        if info_rect.height >= 3 {
+        if info_rect.height >= 1 {
             render_container(frame, info_rect, bg_img);
             let inner = shrink(info_rect, 1, 1);
             frame.render_widget(Paragraph::new(info_lines), inner);
@@ -241,14 +241,14 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     // Actions container
-    if !action_lines.is_empty() && y < area.bottom().saturating_sub(3) {
+    if !action_lines.is_empty() && y < area.bottom().saturating_sub(1) {
         let actions_rect = Rect::new(
             x,
             y,
             container_width,
             actions_h.min(area.bottom().saturating_sub(y)),
         );
-        if actions_rect.height >= 3 {
+        if actions_rect.height >= 1 {
             render_container(frame, actions_rect, bg_img);
             let inner = shrink(actions_rect, 1, 1);
             let actions_content = Paragraph::new(action_lines).block(
@@ -264,8 +264,8 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// Renders a dark rounded container with 50% opacity over the background image.
-/// Reads bg image colors and blends them with black, then draws the border.
+/// Renders a dark container with 50% opacity over the background image.
+/// Reads bg image colors and blends them with black.
 fn render_container(frame: &mut Frame, area: Rect, bg_img: Option<&QuadrantImage>) {
     let buf = frame.buffer_mut();
     for cy in area.y..area.bottom() {
@@ -292,12 +292,6 @@ fn render_container(frame: &mut Frame, area: Rect, bg_img: Option<&QuadrantImage
             cell.set_fg(Color::Reset);
         }
     }
-    // Draw rounded border on top
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(Color::DarkGray));
-    frame.render_widget(block, area);
 }
 
 /// Shrinks a rect by the given horizontal and vertical margins (for inside a border).
