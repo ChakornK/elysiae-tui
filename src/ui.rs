@@ -7,10 +7,12 @@ use ratatui::Frame;
 
 use crate::app::{App, View};
 use crate::game::GameId;
+use crate::quadrant::QuadrantImage;
 use irmin::SophonProgress;
 
 /// Dark translucent panel background for text readability over the image.
-const PANEL_BG: Color = Color::Rgb(10, 10, 15);
+/// Approximates ~50% opacity black over a typical dark game background.
+const PANEL_BG: Color = Color::Rgb(15, 15, 22);
 
 /// Renders the full TUI frame based on current application state.
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -110,56 +112,17 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     let game = app.selected_game();
     let status = app.games.get(&game);
     let installed = status.and_then(|s| s.installed_tag.as_ref());
+    let bg_img = app.backgrounds.get(&game);
 
-    // Border-only block — no padding, no bg. Background image shows through.
-    // Content spacing is handled via leading spaces in text spans.
-    let panel_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(Color::DarkGray));
-    let content_area = panel_block.inner(area);
-    frame.render_widget(panel_block, area);
-
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(4), // Header: game name + version
-            Constraint::Min(0),    // Info area
-        ])
-        .split(content_area);
-
-    // Header block: game branding
-    let version_text = installed
-        .map(|t| format!("v{}", t))
-        .unwrap_or_else(|| "Not installed".to_owned());
-
-    let header_lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            format!("  {}", game.display_name().to_uppercase()),
-            Style::default()
-                .fg(game_color(game))
-                .add_modifier(Modifier::BOLD),
-        )),
-        Line::from(Span::styled(
-            format!("  {}", version_text),
-            Style::default().fg(Color::Gray),
-        )),
-    ];
-
-    let header = Paragraph::new(header_lines);
-    frame.render_widget(header, layout[0]);
-
-    // Info area: update status + actions
-    let mut lines: Vec<Line> = Vec::new();
-    lines.push(Line::from(""));
+    // Build content lines for the info container
+    let mut info_lines: Vec<Line> = Vec::new();
 
     if let Some(gs) = status {
         if let Some(ref info) = gs.update_info {
             if info.update_available {
-                lines.push(Line::from(vec![
+                info_lines.push(Line::from(vec![
                     Span::styled(
-                        "  Update available  ",
+                        " Update available  ",
                         Style::default()
                             .fg(Color::Green)
                             .add_modifier(Modifier::BOLD),
@@ -173,28 +136,26 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                         Style::default().fg(Color::Gray),
                     ),
                 ]));
-                lines.push(Line::from(""));
             }
             if info.preinstall_available {
                 let tag = info.preinstall_tag.as_deref().unwrap_or("unknown");
                 let suffix = if info.preinstall_downloaded {
-                    " [ready to apply]"
+                    " [ready]"
                 } else {
                     ""
                 };
-                lines.push(Line::from(vec![
-                    Span::styled("  Preinstall  ", Style::default().fg(Color::Magenta)),
+                info_lines.push(Line::from(vec![
+                    Span::styled(" Preinstall  ", Style::default().fg(Color::Magenta)),
                     Span::styled(
                         format!("{}{}", tag, suffix),
                         Style::default().fg(Color::Gray),
                     ),
                 ]));
-                lines.push(Line::from(""));
             }
         }
     }
 
-    // Action hints styled like menu items
+    // Action lines
     let is_installed = installed.is_some();
     let has_update = status
         .and_then(|s| s.update_info.as_ref())
@@ -203,28 +164,150 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         .and_then(|s| s.update_info.as_ref())
         .is_some_and(|i| i.preinstall_available && !i.preinstall_downloaded);
 
-    lines.push(Line::styled(
-        "  Actions",
-        Style::default().fg(Color::DarkGray),
-    ));
-    lines.push(Line::from(""));
-
+    let mut action_lines: Vec<Line> = Vec::new();
     if !is_installed {
-        lines.push(action_line('d', "Download Game", Color::Yellow));
+        action_lines.push(action_line('d', "Download Game", Color::Yellow));
     }
     if has_update {
-        lines.push(action_line('u', "Update", Color::Green));
+        action_lines.push(action_line('u', "Update", Color::Green));
     }
     if is_installed {
-        lines.push(action_line('l', "Launch", Color::Cyan));
-        lines.push(action_line('v', "Verify Files", Color::White));
+        action_lines.push(action_line('l', "Launch", Color::Cyan));
+        action_lines.push(action_line('v', "Verify Files", Color::White));
     }
     if has_preinstall {
-        lines.push(action_line('p', "Preinstall", Color::Magenta));
+        action_lines.push(action_line('p', "Preinstall", Color::Magenta));
     }
 
-    let info = Paragraph::new(lines).block(Block::default().borders(Borders::NONE));
-    frame.render_widget(info, layout[1]);
+    // Calculate container heights (border adds 2 rows, padding adds 2 rows)
+    let header_h: u16 = 4; // border(2) + title + version
+    let info_h: u16 = if info_lines.is_empty() {
+        0
+    } else {
+        info_lines.len() as u16 + 4 // border(2) + padding(2)
+    };
+    let actions_h: u16 = action_lines.len() as u16 + 4; // border(2) + padding(2)
+
+    // Layout containers vertically with gaps
+    let mut y = area.y + 1; // 1-row margin from top
+    let container_width = 50u16.min(area.width.saturating_sub(2));
+    let x = area.x + 1; // 1-col margin from left
+
+    // Header container
+    let header_rect = Rect::new(
+        x,
+        y,
+        container_width,
+        header_h.min(area.bottom().saturating_sub(y)),
+    );
+    if header_rect.height >= 3 {
+        render_container(frame, header_rect, bg_img);
+        let inner = shrink(header_rect, 1, 1);
+        let header_lines = vec![
+            Line::from(Span::styled(
+                format!(" {}", game.display_name().to_uppercase()),
+                Style::default()
+                    .fg(game_color(game))
+                    .add_modifier(Modifier::BOLD),
+            )),
+            Line::from(Span::styled(
+                format!(
+                    " {}",
+                    installed
+                        .map(|t| format!("v{}", t))
+                        .unwrap_or_else(|| "Not installed".to_owned())
+                ),
+                Style::default().fg(Color::Gray),
+            )),
+        ];
+        frame.render_widget(Paragraph::new(header_lines), inner);
+        y = header_rect.bottom() + 1;
+    }
+
+    // Info container (only if there's update/preinstall info)
+    if !info_lines.is_empty() && y < area.bottom().saturating_sub(3) {
+        let info_rect = Rect::new(
+            x,
+            y,
+            container_width,
+            info_h.min(area.bottom().saturating_sub(y)),
+        );
+        if info_rect.height >= 3 {
+            render_container(frame, info_rect, bg_img);
+            let inner = shrink(info_rect, 1, 1);
+            frame.render_widget(Paragraph::new(info_lines), inner);
+            y = info_rect.bottom() + 1;
+        }
+    }
+
+    // Actions container
+    if !action_lines.is_empty() && y < area.bottom().saturating_sub(3) {
+        let actions_rect = Rect::new(
+            x,
+            y,
+            container_width,
+            actions_h.min(area.bottom().saturating_sub(y)),
+        );
+        if actions_rect.height >= 3 {
+            render_container(frame, actions_rect, bg_img);
+            let inner = shrink(actions_rect, 1, 1);
+            let actions_content = Paragraph::new(action_lines).block(
+                Block::default()
+                    .title(Span::styled(
+                        " Actions ",
+                        Style::default().fg(Color::DarkGray),
+                    ))
+                    .borders(Borders::NONE),
+            );
+            frame.render_widget(actions_content, inner);
+        }
+    }
+}
+
+/// Renders a dark rounded container with 50% opacity over the background image.
+/// Reads bg image colors and blends them with black, then draws the border.
+fn render_container(frame: &mut Frame, area: Rect, bg_img: Option<&QuadrantImage>) {
+    let buf = frame.buffer_mut();
+    for cy in area.y..area.bottom() {
+        for cx in area.x..area.right() {
+            let (r, g, b) = if let Some(img) = bg_img {
+                // Read original color from the pre-rendered background image
+                let idx = (cy as usize) * (img.width as usize) + (cx as usize);
+                if idx < img.cells.len() {
+                    match img.cells[idx].bg {
+                        Color::Rgb(r, g, b) => (r, g, b),
+                        _ => (0, 0, 0),
+                    }
+                } else {
+                    (0, 0, 0)
+                }
+            } else {
+                (0, 0, 0)
+            };
+            // 50% blend with black
+            let blended = Color::Rgb(r / 2, g / 2, b / 2);
+            let cell = &mut buf[(cx, cy)];
+            cell.set_char(' ');
+            cell.set_bg(blended);
+            cell.set_fg(Color::Reset);
+        }
+    }
+    // Draw rounded border on top
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(block, area);
+}
+
+/// Shrinks a rect by the given horizontal and vertical margins (for inside a border).
+fn shrink(r: Rect, h: u16, v: u16) -> Rect {
+    Rect::new(
+        r.x + h,
+        r.y + v,
+        r.width.saturating_sub(h * 2),
+        r.height.saturating_sub(v * 2),
+    )
 }
 
 fn draw_downloading(frame: &mut Frame, app: &App, area: Rect) {
@@ -442,10 +525,7 @@ fn primary_button(app: &App) -> (&'static str, Color) {
 
 fn action_line(key: char, label: &str, color: Color) -> Line<'_> {
     Line::from(vec![
-        Span::styled(
-            format!("    [{}] ", key),
-            Style::default().fg(Color::DarkGray),
-        ),
+        Span::styled(format!(" [{}] ", key), Style::default().fg(Color::DarkGray)),
         Span::styled(label, Style::default().fg(color)),
     ])
 }
