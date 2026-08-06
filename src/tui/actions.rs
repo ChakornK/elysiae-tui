@@ -1,4 +1,5 @@
 use std::io;
+use std::path::PathBuf;
 
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
@@ -31,11 +32,19 @@ pub async fn refresh_update_info(app: &mut App, client: &reqwest::Client) {
 pub fn start_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
     let game = app.active_game;
     let gc = app.config.game_config(game).clone();
-    if let Some(ref path) = gc.install_path {
-        let handle = DownloadHandle::new();
-        app.start_download(game, handle.clone());
-        spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Download);
-    }
+    let path = match gc.install_path {
+        Some(p) => p,
+        None => {
+            // Auto-assign a default install path
+            let default = default_install_path(game);
+            app.config.game_config(game).install_path = Some(default.clone());
+            let _ = app.config.save();
+            default
+        }
+    };
+    let handle = DownloadHandle::new();
+    app.start_download(game, handle.clone());
+    spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Download);
 }
 
 /// Spawns an update task for the active game.
@@ -179,4 +188,12 @@ fn spawn_operation(
             eprintln!("operation failed: {e}");
         }
     });
+}
+
+fn default_install_path(game: GameId) -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .join("elysiae-cli")
+        .join("games")
+        .join(game.as_str())
 }
