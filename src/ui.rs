@@ -1,12 +1,16 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, Paragraph, Tabs};
+use ratatui::widgets::{Block, Borders, Clear, Gauge, Padding, Paragraph, Tabs};
 use ratatui::Frame;
 
 use crate::app::{App, View};
 use crate::game::GameId;
 use irmin::SophonProgress;
+
+/// Dark translucent panel background for text readability over the image.
+const PANEL_BG: Color = Color::Rgb(10, 10, 15);
 
 /// Renders the full TUI frame based on current application state.
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -63,6 +67,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
 }
 
 fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
+    // Clear background quadrant chars, then draw over with styled block
+    frame.render_widget(Clear, area);
+
     let titles: Vec<Line> = GameId::ALL
         .iter()
         .map(|g| {
@@ -92,7 +99,9 @@ fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
                         .add_modifier(Modifier::BOLD),
                 ))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_set(border::ROUNDED)
+                .border_style(Style::default().fg(Color::DarkGray))
+                .style(Style::default().bg(PANEL_BG)),
         );
     frame.render_widget(tabs, area);
 }
@@ -102,13 +111,22 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     let status = app.games.get(&game);
     let installed = status.and_then(|s| s.installed_tag.as_ref());
 
+    // Border-only block — no padding, no bg. Background image shows through.
+    // Content spacing is handled via leading spaces in text spans.
+    let panel_block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let content_area = panel_block.inner(area);
+    frame.render_widget(panel_block, area);
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(5), // Header: game name + version
+            Constraint::Length(4), // Header: game name + version
             Constraint::Min(0),    // Info area
         ])
-        .split(area);
+        .split(content_area);
 
     // Header block: game branding
     let version_text = installed
@@ -129,11 +147,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         )),
     ];
 
-    let header = Paragraph::new(header_lines).block(
-        Block::default()
-            .borders(Borders::BOTTOM)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
+    let header = Paragraph::new(header_lines);
     frame.render_widget(header, layout[0]);
 
     // Info area: update status + actions
@@ -266,13 +280,24 @@ fn draw_downloading(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
+    frame.render_widget(Clear, area);
+
+    let panel_block = Block::default()
+        .borders(Borders::ALL)
+        .border_set(border::ROUNDED)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .style(Style::default().bg(PANEL_BG))
+        .padding(Padding::new(2, 2, 1, 1));
+    let content_area = panel_block.inner(area);
+    frame.render_widget(panel_block, area);
+
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(2), // Section header
             Constraint::Min(0),    // Content
         ])
-        .split(area);
+        .split(content_area);
 
     let header = Paragraph::new(Line::from(Span::styled(
         "  Settings",
@@ -338,11 +363,13 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         Span::styled(jadeite, Style::default().fg(Color::Gray)),
     ]));
 
-    let content = Paragraph::new(lines).block(Block::default().borders(Borders::NONE));
+    let content = Paragraph::new(lines);
     frame.render_widget(content, layout[1]);
 }
 
 fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
+    frame.render_widget(Clear, area);
+
     let layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Min(0), Constraint::Length(20)])
@@ -361,11 +388,13 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     .block(
         Block::default()
             .borders(Borders::TOP)
-            .border_style(Style::default().fg(Color::DarkGray)),
+            .border_set(border::ROUNDED)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .style(Style::default().bg(PANEL_BG)),
     );
     frame.render_widget(keybinds, layout[0]);
 
-    // Right: primary action button (like the yellow "Get Game" / "Launch" button)
+    // Right: primary action button
     let (btn_text, btn_color) = primary_button(app);
     let button = Paragraph::new(Line::from(Span::styled(
         format!(" {} ", btn_text),
@@ -377,7 +406,9 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     .block(
         Block::default()
             .borders(Borders::TOP)
-            .border_style(Style::default().fg(Color::DarkGray)),
+            .border_set(border::ROUNDED)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .style(Style::default().bg(PANEL_BG)),
     );
     frame.render_widget(button, layout[1]);
 }
