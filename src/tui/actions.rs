@@ -213,7 +213,7 @@ fn spawn_operation(
     });
 }
 
-/// Installs Proton (and Jadeite for HKRPG) if not already present.
+/// Installs Proton (and Jadeite for HKRPG) if not already present or outdated.
 /// Persists installed component versions to config.
 async fn ensure_components(
     client: &reqwest::Client,
@@ -222,11 +222,23 @@ async fn ensure_components(
     tx: &Sender<SophonProgress>,
     handle: &DownloadHandle,
 ) -> Result<(), String> {
-    use crate::components::{jadeite_available, proton_available};
+    use crate::components::{component_needs_update, jadeite_available, proton_available};
     use crate::config::Config;
 
-    if !proton_available(data_dir) {
-        let tag = install_component_with_progress(client, data_dir, "proton", "Installing Proton", tx, handle)
+    let proton_missing = !proton_available(data_dir);
+    let proton_outdated = if !proton_missing {
+        component_needs_update(client, data_dir, "proton").await
+    } else {
+        false
+    };
+
+    if proton_missing || proton_outdated {
+        let label = if proton_outdated { "Updating Proton" } else { "Installing Proton" };
+        // Remove old install before updating so extraction starts clean
+        if proton_outdated {
+            let _ = std::fs::remove_dir_all(data_dir.join("proton"));
+        }
+        let tag = install_component_with_progress(client, data_dir, "proton", label, tx, handle)
             .await?;
         let mut config = Config::load();
         config.installed_components.proton = Some(tag);
@@ -237,12 +249,25 @@ async fn ensure_components(
         return Err("Cancelled".to_owned());
     }
 
-    if game.needs_jadeite() && !jadeite_available(data_dir) {
-        let tag = install_component_with_progress(client, data_dir, "jadeite", "Installing Jadeite", tx, handle)
-            .await?;
-        let mut config = Config::load();
-        config.installed_components.jadeite = Some(tag);
-        let _ = config.save();
+    if game.needs_jadeite() {
+        let jadeite_missing = !jadeite_available(data_dir);
+        let jadeite_outdated = if !jadeite_missing {
+            component_needs_update(client, data_dir, "jadeite").await
+        } else {
+            false
+        };
+
+        if jadeite_missing || jadeite_outdated {
+            let label = if jadeite_outdated { "Updating Jadeite" } else { "Installing Jadeite" };
+            if jadeite_outdated {
+                let _ = std::fs::remove_dir_all(data_dir.join("jadeite"));
+            }
+            let tag = install_component_with_progress(client, data_dir, "jadeite", label, tx, handle)
+                .await?;
+            let mut config = Config::load();
+            config.installed_components.jadeite = Some(tag);
+            let _ = config.save();
+        }
     }
 
     Ok(())

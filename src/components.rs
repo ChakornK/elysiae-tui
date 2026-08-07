@@ -196,6 +196,32 @@ pub fn read_component_tag(data_dir: &std::path::Path, name: &str) -> Option<Stri
     std::fs::read_to_string(path).ok().filter(|s| !s.is_empty())
 }
 
+/// Checks if a component is outdated by comparing the local tag against the Aedes API.
+/// Returns `true` if an update is available (remote tag differs from installed tag).
+/// Returns `false` if up-to-date or if the check fails (network error, etc.).
+pub async fn component_needs_update(
+    client: &reqwest::Client,
+    data_dir: &std::path::Path,
+    name: &str,
+) -> bool {
+    let installed_tag = match read_component_tag(data_dir, name) {
+        Some(tag) => tag,
+        None => return false, // Not installed — handled by availability checks
+    };
+    let url = format!("{}/components/{}.json", AEDES_BASE, name);
+    let meta: Vec<ModuleData> = match client.get(&url).send().await.and_then(|r| Ok(r)) {
+        Ok(resp) => match resp.json().await {
+            Ok(m) => m,
+            Err(_) => return false,
+        },
+        Err(_) => return false,
+    };
+    match select_for_arch(&meta) {
+        Some(module) => module.tag != installed_tag,
+        None => false,
+    }
+}
+
 /// Checks whether Proton directories exist and are non-empty.
 pub fn proton_available(data_dir: &std::path::Path) -> bool {
     let proton_dir = data_dir.join("proton");
