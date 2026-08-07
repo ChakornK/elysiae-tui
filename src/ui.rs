@@ -24,6 +24,7 @@ mod palette {
     pub const MAGENTA: Color = Color::Rgb(200, 140, 220);
     pub const BAR_BG: Color = Color::Rgb(50, 50, 65);
     pub const BLACK: Color = Color::Rgb(10, 10, 15);
+    pub const CONTAINER_BG: Color = Color::Rgb(37, 37, 37);
 
     // Per-game brand colors
     pub const GAME_BH3: Color = Color::Rgb(240, 120, 120);
@@ -49,9 +50,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4), // Game tabs (3 + 1 padding)
+            Constraint::Length(4), // Game tabs (1 gap + 3 container)
             Constraint::Min(0),    // Main content
-            Constraint::Length(4), // Action bar (3 + 1 padding)
+            Constraint::Length(4), // Action bar
         ])
         .split(frame.area());
 
@@ -111,40 +112,37 @@ pub fn draw(frame: &mut Frame, app: &App) {
 }
 
 fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
-    // Floating container over background image
     let bg_img = app.backgrounds.get(&app.selected_game());
     render_container(frame, area, bg_img);
+    let inner = shrink(area, 2, 1);
 
-    let titles: Vec<Line> = GameId::ALL
-        .iter()
-        .enumerate()
-        .map(|(i, g)| {
-            let color = game_color(*g);
-            Line::from(Span::styled(
-                format!(" [{}] {} ", i + 1, g.display_name()),
-                Style::default().fg(color),
-            ))
-        })
-        .collect();
+    // Build single line: "elysiae | [1] bh3 | [2] hk4e | ..."
+    let mut spans: Vec<Span> = Vec::new();
+    spans.push(Span::styled(
+        "elysiae",
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    ));
+    spans.push(Span::styled("  ", Style::default()));
 
-    let tabs = Tabs::new(titles)
-        .select(app.game_list_index)
-        .highlight_style(
-            Style::default()
-                .fg(BLACK)
-                .bg(game_color(app.selected_game()))
-                .add_modifier(Modifier::BOLD),
-        )
-        .divider(Span::styled(" | ", Style::default().fg(TEXT_MUTED)))
-        .block(
-            Block::default()
-                .title(Span::styled(
-                    " elysiae ",
-                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
-                ))
-                .borders(Borders::NONE),
-        );
-    frame.render_widget(tabs, area);
+    for (i, g) in GameId::ALL.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::styled(" | ", Style::default().fg(TEXT_MUTED)));
+        }
+        let label = format!("[{}] {} ", i + 1, g.display_name());
+        if i == app.game_list_index {
+            spans.push(Span::styled(
+                label,
+                Style::default()
+                    .fg(BLACK)
+                    .bg(game_color(*g))
+                    .add_modifier(Modifier::BOLD),
+            ));
+        } else {
+            spans.push(Span::styled(label, Style::default().fg(game_color(*g))));
+        }
+    }
+
+    frame.render_widget(Paragraph::new(Line::from(spans)), inner);
 }
 
 fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
@@ -192,30 +190,6 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    // Action lines
-    let is_installed = installed.is_some();
-    let has_update = status
-        .and_then(|s| s.update_info.as_ref())
-        .is_some_and(|i| i.update_available);
-    let has_preinstall = status
-        .and_then(|s| s.update_info.as_ref())
-        .is_some_and(|i| i.preinstall_available && !i.preinstall_downloaded);
-
-    let mut action_lines: Vec<Line> = Vec::new();
-    if !is_installed {
-        action_lines.push(action_line('d', "Download Game", WARNING));
-    }
-    if has_update {
-        action_lines.push(action_line('u', "Update", SUCCESS));
-    }
-    if is_installed {
-        action_lines.push(action_line('l', "Launch", ACCENT));
-        action_lines.push(action_line('v', "Verify Files", TEXT));
-    }
-    if has_preinstall {
-        action_lines.push(action_line('p', "Preinstall", MAGENTA));
-    }
-
     // Calculate container heights (1 row padding top + bottom)
     let header_h: u16 = 4; // padding(2) + title + version
     let info_h: u16 = if info_lines.is_empty() {
@@ -223,12 +197,11 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         info_lines.len() as u16 + 2 // padding(2)
     };
-    let actions_h: u16 = action_lines.len() as u16 + 3; // padding(2) + "Actions" title
 
     // Layout containers vertically with gaps
     let mut y = area.y + 1; // 1-row margin from top
-    let container_width = 50u16.min(area.width.saturating_sub(2));
-    let x = area.x + 1; // 1-col margin from left
+    let container_width = 50u16.min(area.width.saturating_sub(4));
+    let x = area.x + 2; // 2-col margin from left
 
     // Header container
     let header_rect = Rect::new(
@@ -239,7 +212,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     );
     if header_rect.height >= 2 {
         render_container(frame, header_rect, bg_img);
-        let inner = shrink(header_rect, 1, 1);
+        let inner = shrink(header_rect, 2, 1);
         let header_lines = vec![
             Line::from(Span::styled(
                 format!(" {}", game.display_name().to_uppercase()),
@@ -271,58 +244,21 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         );
         if info_rect.height >= 1 {
             render_container(frame, info_rect, bg_img);
-            let inner = shrink(info_rect, 1, 1);
+            let inner = shrink(info_rect, 2, 1);
             frame.render_widget(Paragraph::new(info_lines), inner);
             y = info_rect.bottom() + 1;
         }
     }
-
-    // Actions container
-    if !action_lines.is_empty() && y < area.bottom().saturating_sub(1) {
-        let actions_rect = Rect::new(
-            x,
-            y,
-            container_width,
-            actions_h.min(area.bottom().saturating_sub(y)),
-        );
-        if actions_rect.height >= 1 {
-            render_container(frame, actions_rect, bg_img);
-            let inner = shrink(actions_rect, 1, 1);
-            let actions_content = Paragraph::new(action_lines).block(
-                Block::default()
-                    .title(Span::styled(" Actions ", Style::default().fg(TEXT_MUTED)))
-                    .borders(Borders::NONE),
-            );
-            frame.render_widget(actions_content, inner);
-        }
-    }
 }
 
-/// Renders a dark container with 50% opacity over the background image.
-/// Reads bg image colors and blends them with black.
-fn render_container(frame: &mut Frame, area: Rect, bg_img: Option<&QuadrantImage>) {
+/// Renders a dark gray container over the background image.
+fn render_container(frame: &mut Frame, area: Rect, _bg_img: Option<&QuadrantImage>) {
     let buf = frame.buffer_mut();
     for cy in area.y..area.bottom() {
         for cx in area.x..area.right() {
-            let (r, g, b) = if let Some(img) = bg_img {
-                // Read original color from the pre-rendered background image
-                let idx = (cy as usize) * (img.width as usize) + (cx as usize);
-                if idx < img.cells.len() {
-                    match img.cells[idx].bg {
-                        Color::Rgb(r, g, b) => (r, g, b),
-                        _ => (0, 0, 0),
-                    }
-                } else {
-                    (0, 0, 0)
-                }
-            } else {
-                (0, 0, 0)
-            };
-            // 50% blend with black
-            let blended = Color::Rgb(r / 2, g / 2, b / 2);
             let cell = &mut buf[(cx, cy)];
             cell.set_char(' ');
-            cell.set_bg(blended);
+            cell.set_bg(CONTAINER_BG);
             cell.set_fg(Color::Reset);
         }
     }
@@ -581,54 +517,76 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     let bg_img = app.backgrounds.get(&app.selected_game());
-    render_container(frame, area, bg_img);
 
-    let layout = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(0), Constraint::Length(20)])
-        .split(area);
+    // Right island: button with 2 col 1 row padding
+    let (btn_text, btn_color, btn_key) = primary_button(app);
+    let btn_label = format!("[{}] {}", btn_key, btn_text);
+    let btn_content_w = btn_label.len() as u16;
+    let btn_island_w = btn_content_w + 4; // + 2 col padding each side
+    let btn_island_h = 3u16; // 1 row padding top + content + 1 row padding bottom
 
-    // Left: keybinds
+    let btn_rect = Rect::new(
+        area.right().saturating_sub(btn_island_w),
+        area.y,
+        btn_island_w.min(area.width),
+        btn_island_h.min(area.height),
+    );
+
+    // Left island: keybinds
     let keys = if app.download.is_some() {
-        " q quit  p pause  r resume  c cancel  <-/-> switch game"
+        "[q] quit  [p] pause  [r] resume  [c] cancel  [←/→] switch game"
     } else {
         match app.current_view {
             View::GameList | View::GameDetail | View::Downloading => {
-                " q quit  s settings  <-/-> switch game"
+                "[q] quit  [s] settings  [←/→] switch game"
             }
-            View::Settings => " esc back  1 proton  2 jadeite",
+            View::Settings => "[esc] back  [1] proton  [2] jadeite",
         }
     };
-    let keybinds = Paragraph::new(Line::from(Span::styled(
-        keys,
-        Style::default().fg(TEXT_MUTED),
-    )));
+    let keys_display_w = keys.chars().count() as u16;
+    let keys_w = (keys_display_w + 4).min(area.width.saturating_sub(btn_island_w + 2));
+    let keys_rect = Rect::new(area.x, area.y, keys_w, btn_island_h.min(area.height));
+
+    // Render left island
+    render_container(frame, keys_rect, bg_img);
+    let keys_inner = shrink(keys_rect, 2, 1);
     frame.render_widget(
-        keybinds,
-        Rect::new(layout[0].x, layout[0].y + 1, layout[0].width, 1),
+        Paragraph::new(Line::from(Span::styled(
+            keys,
+            Style::default().fg(TEXT_MUTED),
+        ))),
+        keys_inner,
     );
 
-    // Right: primary action button
-    let (btn_text, btn_color) = primary_button(app);
-    let button = Paragraph::new(Line::from(Span::styled(
-        format!(" {} ", btn_text),
-        Style::default()
-            .fg(BLACK)
-            .bg(btn_color)
-            .add_modifier(Modifier::BOLD),
-    )));
+    // Render right button (solid color, no container)
+    let buf = frame.buffer_mut();
+    for cy in btn_rect.y..btn_rect.bottom() {
+        for cx in btn_rect.x..btn_rect.right() {
+            let cell = &mut buf[(cx, cy)];
+            cell.set_char(' ');
+            cell.set_bg(btn_color);
+            cell.set_fg(BLACK);
+        }
+    }
+    let btn_inner = shrink(btn_rect, 2, 1);
     frame.render_widget(
-        button,
-        Rect::new(layout[1].x, layout[1].y + 1, layout[1].width, 1),
+        Paragraph::new(Line::from(Span::styled(
+            btn_label,
+            Style::default()
+                .fg(BLACK)
+                .bg(btn_color)
+                .add_modifier(Modifier::BOLD),
+        ))),
+        btn_inner,
     );
 }
 
-fn primary_button(app: &App) -> (&'static str, Color) {
+fn primary_button(app: &App) -> (&'static str, Color, char) {
     if app.download.is_some() {
-        return ("Downloading...", WARNING);
+        return ("Downloading...", WARNING, 'p');
     }
     match app.current_view {
-        View::Settings => ("Settings", ACCENT),
+        View::Settings => ("Settings", ACCENT, 's'),
         _ => {
             let game = app.selected_game();
             let installed = app
@@ -642,21 +600,14 @@ fn primary_button(app: &App) -> (&'static str, Color) {
                 .and_then(|s| s.update_info.as_ref())
                 .is_some_and(|i| i.update_available);
             if has_update {
-                ("Update", SUCCESS)
+                ("Update", SUCCESS, 'u')
             } else if installed {
-                ("Launch", ACCENT)
+                ("Launch", ACCENT, 'l')
             } else {
-                ("Get Game", WARNING)
+                ("Get Game", WARNING, 'd')
             }
         }
     }
-}
-
-fn action_line(key: char, label: &str, color: Color) -> Line<'_> {
-    Line::from(vec![
-        Span::styled(format!(" [{}] ", key), Style::default().fg(TEXT_MUTED)),
-        Span::styled(label, Style::default().fg(color)),
-    ])
 }
 
 fn game_color(game: GameId) -> Color {
