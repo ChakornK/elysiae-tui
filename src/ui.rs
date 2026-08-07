@@ -582,12 +582,30 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
 fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     let bg_img = app.backgrounds.get(&app.selected_game());
 
-    // Right island: button with 2 col 1 row padding
-    let (btn_text, btn_color, btn_key) = primary_button(app);
+    // Right island: primary action button (always WARNING color)
+    let (btn_text, btn_key) = primary_button(app);
     let btn_label = format!("[{}] {}", btn_key, btn_text);
-    let btn_content_w = btn_label.len() as u16;
-    let btn_island_w = btn_content_w + 4; // + 2 col padding each side
-    let btn_island_h = 3u16; // 1 row padding top + content + 1 row padding bottom
+    let btn_content_w = btn_label.chars().count() as u16;
+    let btn_island_w = btn_content_w + 4;
+    let btn_island_h = 3u16;
+
+    // Disabled when another game is downloading and this action would start a new download
+    let btn_disabled = if let Some(ref dl) = app.download {
+        let game = app.selected_game();
+        let installed = app
+            .games
+            .get(&game)
+            .and_then(|s| s.installed_tag.as_ref())
+            .is_some();
+        let has_update = app
+            .games
+            .get(&game)
+            .and_then(|s| s.update_info.as_ref())
+            .is_some_and(|i| i.update_available);
+        dl.game_id != game && !(installed && !has_update)
+    } else {
+        false
+    };
 
     let btn_rect = Rect::new(
         area.right().saturating_sub(btn_island_w),
@@ -660,47 +678,33 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         );
     }
 
-    // Determine if button is disabled (downloading another game, and this isn't a launch)
-    let btn_disabled =
-        app.download.is_some() && btn_text != "Launch" && btn_text != "Downloading...";
-
-    // Render right button (solid color, no container)
-    let buf = frame.buffer_mut();
-    for cy in btn_rect.y..btn_rect.bottom() {
-        for cx in btn_rect.x..btn_rect.right() {
-            let cell = &mut buf[(cx, cy)];
-            cell.set_char(' ');
-            if btn_disabled {
-                // 70% opacity: blend button color with black
-                if let Color::Rgb(r, g, b) = btn_color {
-                    cell.set_bg(Color::Rgb(
-                        ((r as u16 * 3) / 10) as u8,
-                        ((g as u16 * 3) / 10) as u8,
-                        ((b as u16 * 3) / 10) as u8,
-                    ));
-                }
-            } else {
-                cell.set_bg(btn_color);
-            }
-            cell.set_fg(BLACK);
-        }
-    }
-    let btn_inner = shrink(btn_rect, 2, 1);
-    let btn_fg = if btn_disabled { TEXT_MUTED } else { BLACK };
+    // Render right button (solid WARNING background)
     let btn_bg = if btn_disabled {
-        // Match the dimmed bg
-        if let Color::Rgb(r, g, b) = btn_color {
+        // 30% brightness of WARNING
+        if let Color::Rgb(r, g, b) = WARNING {
             Color::Rgb(
                 ((r as u16 * 3) / 10) as u8,
                 ((g as u16 * 3) / 10) as u8,
                 ((b as u16 * 3) / 10) as u8,
             )
         } else {
-            btn_color
+            WARNING
         }
     } else {
-        btn_color
+        WARNING
     };
+    let btn_fg = if btn_disabled { TEXT_MUTED } else { BLACK };
+
+    let buf = frame.buffer_mut();
+    for cy in btn_rect.y..btn_rect.bottom() {
+        for cx in btn_rect.x..btn_rect.right() {
+            let cell = &mut buf[(cx, cy)];
+            cell.set_char(' ');
+            cell.set_bg(btn_bg);
+            cell.set_fg(btn_fg);
+        }
+    }
+    let btn_inner = shrink(btn_rect, 2, 1);
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             btn_label,
@@ -713,12 +717,33 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn primary_button(app: &App) -> (&'static str, Color, &'static str) {
-    if app.download.is_some() {
-        return ("Downloading...", WARNING, "p");
+/// Returns (label, key) for the primary action button. Color is always WARNING.
+fn primary_button(app: &App) -> (&'static str, &'static str) {
+    if let Some(ref dl) = app.download {
+        if dl.game_id == app.selected_game() {
+            return ("Downloading...", "p");
+        }
+        // Another game is downloading — show what the button would do if enabled
+        let game = app.selected_game();
+        let status = app.games.get(&game);
+        let installed = status.and_then(|s| s.installed_tag.as_ref()).is_some();
+        let has_update = status
+            .and_then(|s| s.update_info.as_ref())
+            .is_some_and(|i| i.update_available);
+        if installed && !has_update {
+            return ("Launch", "⏎");
+        }
+        let has_resume = status.is_some_and(|s| s.has_resume);
+        if has_update {
+            return ("Update", "⏎");
+        } else if has_resume {
+            return ("Resume", "⏎");
+        } else {
+            return ("Get Game", "⏎");
+        }
     }
     match app.current_view {
-        View::Settings => ("Settings", ACCENT, "s"),
+        View::Settings => ("Settings", "s"),
         _ => {
             let game = app.selected_game();
             let status = app.games.get(&game);
@@ -729,13 +754,13 @@ fn primary_button(app: &App) -> (&'static str, Color, &'static str) {
             let has_resume = status.is_some_and(|s| s.has_resume);
 
             if has_update {
-                ("Update", SUCCESS, "⏎")
+                ("Update", "⏎")
             } else if has_resume {
-                ("Resume", WARNING, "⏎")
+                ("Resume", "⏎")
             } else if installed {
-                ("Launch", ACCENT, "⏎")
+                ("Launch", "⏎")
             } else {
-                ("Get Game", WARNING, "⏎")
+                ("Get Game", "⏎")
             }
         }
     }

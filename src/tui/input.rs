@@ -91,7 +91,6 @@ async fn handle_main(
             let has_update = status
                 .and_then(|s| s.update_info.as_ref())
                 .is_some_and(|i| i.update_available);
-            let has_resume = status.is_some_and(|s| s.has_resume);
 
             if installed && !has_update {
                 // Launch is always allowed
