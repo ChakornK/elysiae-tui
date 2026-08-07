@@ -85,7 +85,7 @@ impl ComponentManager {
         extract_dir: &str,
         tx: Sender<ComponentProgress>,
     ) -> Result<String, ComponentError> {
-        let url = format!("{}/components/{}.json", AEDES_BASE, name);
+        let url = format!("{}/{}.json", AEDES_BASE, name);
         let meta: Vec<ModuleData> = self.client.get(&url).send().await?.json().await?;
         let module = select_for_arch(&meta).ok_or_else(|| {
             ComponentError::Other(format!(
@@ -208,7 +208,7 @@ pub async fn component_needs_update(
         Some(tag) => tag,
         None => return false, // Not installed — handled by availability checks
     };
-    let url = format!("{}/components/{}.json", AEDES_BASE, name);
+    let url = format!("{}/{}.json", AEDES_BASE, name);
     let meta: Vec<ModuleData> = match client.get(&url).send().await.and_then(|r| Ok(r)) {
         Ok(resp) => match resp.json().await {
             Ok(m) => m,
