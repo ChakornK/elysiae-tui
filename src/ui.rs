@@ -12,10 +12,8 @@ use crate::quadrant::QuadrantImage;
 mod palette {
     use ratatui::style::Color;
 
-    pub const PANEL_BG: Color = Color::Rgb(15, 15, 22);
     pub const TEXT: Color = Color::Rgb(220, 220, 230);
     pub const TEXT_MUTED: Color = Color::Rgb(170, 170, 170);
-    pub const BORDER: Color = Color::Rgb(70, 70, 90);
     pub const ERROR: Color = Color::Rgb(240, 80, 80);
     pub const WARNING: Color = Color::Rgb(240, 200, 60);
     pub const SUCCESS: Color = Color::Rgb(80, 220, 120);
@@ -26,7 +24,6 @@ mod palette {
     pub const CONTAINER_BG: Color = Color::Rgb(26, 26, 26);
     pub const SECONDARY_BG: Color = Color::Rgb(18, 18, 18);
 
-    // Per-game brand colors
     pub const GAME_BH3: Color = Color::Rgb(240, 120, 120);
     pub const GAME_HK4E: Color = Color::Rgb(240, 200, 60);
     pub const GAME_HKRPG: Color = Color::Rgb(120, 220, 240);
@@ -70,7 +67,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     // Middle: main content area — always render the main panel
     match app.current_view {
-        View::GameList | View::GameDetail | View::Downloading | View::Settings => {
+        View::GameList | View::Settings => {
             draw_main_panel(frame, app, outer[1]);
             // Draw progress overlay if download is active
             if app.download.is_some() {
@@ -604,9 +601,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         "[q] quit  [p] pause/resume  [c] cancel  [←/→] switch game"
     } else {
         match app.current_view {
-            View::GameList | View::GameDetail | View::Downloading => {
-                "[q] quit  [s] settings  [←/→] switch game"
-            }
+            View::GameList => "[q] quit  [s] settings  [←/→] switch game",
             View::Settings => "[esc] back  [1] proton  [2] jadeite",
         }
     };

@@ -11,9 +11,7 @@ use crate::quadrant::QuadrantImage;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
     GameList,
-    GameDetail,
     Settings,
-    Downloading,
 }
 
 /// Installation status for a single game.
@@ -66,7 +64,6 @@ pub struct App {
     pub status_message: Option<String>,
     pub error_message: Option<String>,
     pub show_resume_prompt: bool,
-    pub settings_index: usize,
     pub backgrounds: HashMap<GameId, QuadrantImage>,
 }
 
@@ -84,7 +81,6 @@ impl App {
             status_message: None,
             error_message: None,
             show_resume_prompt: false,
-            settings_index: 0,
             backgrounds: HashMap::new(),
         }
     }
@@ -105,22 +101,6 @@ impl App {
             .game_list_index
             .checked_sub(1)
             .unwrap_or(GameId::ALL.len() - 1);
-    }
-
-    /// Enters the detail view for the currently selected game.
-    pub fn enter_game_detail(&mut self) {
-        self.active_game = self.selected_game();
-        self.current_view = View::GameDetail;
-    }
-
-    /// Navigates back one view level. Downloading view is sticky.
-    pub fn back(&mut self) {
-        self.current_view = match self.current_view {
-            View::GameDetail => View::GameList,
-            View::Settings => View::GameDetail,
-            // Downloading and GameList don't go back further
-            other => other,
-        };
     }
 
     /// Begins tracking a new download. Stays on the current view.

@@ -19,7 +19,7 @@ pub async fn handle_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match app.current_view {
-        View::GameList | View::GameDetail | View::Downloading => {
+        View::GameList => {
             handle_main(app, key, client, progress_tx, terminal).await
         }
         View::Settings => handle_settings(app, key, client),
