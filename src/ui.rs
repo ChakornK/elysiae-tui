@@ -97,8 +97,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
 }
 
 fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
-    // Clear background quadrant chars, then draw over with styled block
-    frame.render_widget(Clear, area);
+    // Floating container over background image
+    let bg_img = app.backgrounds.get(&app.selected_game());
+    render_container(frame, area, bg_img);
 
     let titles: Vec<Line> = GameId::ALL
         .iter()
@@ -127,10 +128,7 @@ fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
                     " elysiae ",
                     Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
                 ))
-                .borders(Borders::ALL)
-                .border_set(border::ROUNDED)
-                .border_style(Style::default().fg(BORDER))
-                .style(Style::default().bg(PANEL_BG)),
+                .borders(Borders::NONE),
         );
     frame.render_widget(tabs, area);
 }
@@ -568,7 +566,8 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
-    frame.render_widget(Clear, area);
+    let bg_img = app.backgrounds.get(&app.selected_game());
+    render_container(frame, area, bg_img);
 
     let layout = Layout::default()
         .direction(Direction::Horizontal)
@@ -589,15 +588,11 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     let keybinds = Paragraph::new(Line::from(Span::styled(
         keys,
         Style::default().fg(TEXT_MUTED),
-    )))
-    .block(
-        Block::default()
-            .borders(Borders::TOP)
-            .border_set(border::ROUNDED)
-            .border_style(Style::default().fg(BORDER))
-            .style(Style::default().bg(PANEL_BG)),
+    )));
+    frame.render_widget(
+        keybinds,
+        Rect::new(layout[0].x, layout[0].y + 1, layout[0].width, 1),
     );
-    frame.render_widget(keybinds, layout[0]);
 
     // Right: primary action button
     let (btn_text, btn_color) = primary_button(app);
@@ -607,15 +602,11 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
             .fg(BLACK)
             .bg(btn_color)
             .add_modifier(Modifier::BOLD),
-    )))
-    .block(
-        Block::default()
-            .borders(Borders::TOP)
-            .border_set(border::ROUNDED)
-            .border_style(Style::default().fg(BORDER))
-            .style(Style::default().bg(PANEL_BG)),
+    )));
+    frame.render_widget(
+        button,
+        Rect::new(layout[1].x, layout[1].y + 1, layout[1].width, 1),
     );
-    frame.render_widget(button, layout[1]);
 }
 
 fn primary_button(app: &App) -> (&'static str, Color) {
