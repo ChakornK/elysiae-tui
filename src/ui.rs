@@ -9,9 +9,31 @@ use crate::app::{App, View};
 use crate::game::GameId;
 use crate::quadrant::QuadrantImage;
 
-/// Dark translucent panel background for text readability over the image.
-/// Approximates ~50% opacity black over a typical dark game background.
-const PANEL_BG: Color = Color::Rgb(15, 15, 22);
+/// Application color palette — fixed RGB values independent of terminal theme.
+mod palette {
+    use ratatui::style::Color;
+
+    pub const PANEL_BG: Color = Color::Rgb(15, 15, 22);
+    pub const TEXT: Color = Color::Rgb(220, 220, 230);
+    pub const TEXT_DIM: Color = Color::Rgb(140, 140, 160);
+    pub const TEXT_MUTED: Color = Color::Rgb(90, 90, 110);
+    pub const BORDER: Color = Color::Rgb(70, 70, 90);
+    pub const ERROR: Color = Color::Rgb(240, 80, 80);
+    pub const WARNING: Color = Color::Rgb(240, 200, 60);
+    pub const SUCCESS: Color = Color::Rgb(80, 220, 120);
+    pub const ACCENT: Color = Color::Rgb(100, 200, 240);
+    pub const MAGENTA: Color = Color::Rgb(200, 140, 220);
+    pub const BAR_BG: Color = Color::Rgb(50, 50, 65);
+    pub const BLACK: Color = Color::Rgb(10, 10, 15);
+
+    // Per-game brand colors
+    pub const GAME_BH3: Color = Color::Rgb(240, 120, 120);
+    pub const GAME_HK4E: Color = Color::Rgb(240, 200, 60);
+    pub const GAME_HKRPG: Color = Color::Rgb(120, 220, 240);
+    pub const GAME_NAP: Color = Color::Rgb(120, 240, 140);
+}
+
+use palette::*;
 
 /// Renders the full TUI frame based on current application state.
 pub fn draw(frame: &mut Frame, app: &App) {
@@ -40,22 +62,22 @@ pub fn draw(frame: &mut Frame, app: &App) {
     // Middle: main content area
     if let Some(ref msg) = app.error_message {
         let error = Paragraph::new(format!(" {}\n\n Press any key to dismiss.", msg))
-            .style(Style::default().fg(Color::Red))
+            .style(Style::default().fg(ERROR))
             .block(
                 Block::default()
                     .title(" Error ")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Red)),
+                    .border_style(Style::default().fg(ERROR)),
             );
         frame.render_widget(error, outer[1]);
     } else if let Some(ref msg) = app.status_message {
         let status = Paragraph::new(format!(" {}\n\n Press any key to continue.", msg))
-            .style(Style::default().fg(Color::Yellow))
+            .style(Style::default().fg(WARNING))
             .block(
                 Block::default()
                     .title(" Info ")
                     .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Yellow)),
+                    .border_style(Style::default().fg(WARNING)),
             );
         frame.render_widget(status, outer[1]);
     } else {
@@ -95,22 +117,20 @@ fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
         .select(app.game_list_index)
         .highlight_style(
             Style::default()
-                .fg(Color::Black)
+                .fg(BLACK)
                 .bg(game_color(app.selected_game()))
                 .add_modifier(Modifier::BOLD),
         )
-        .divider(Span::styled(" | ", Style::default().fg(Color::DarkGray)))
+        .divider(Span::styled(" | ", Style::default().fg(TEXT_MUTED)))
         .block(
             Block::default()
                 .title(Span::styled(
                     " elysiae ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
                 ))
                 .borders(Borders::ALL)
                 .border_set(border::ROUNDED)
-                .border_style(Style::default().fg(Color::DarkGray))
+                .border_style(Style::default().fg(BORDER))
                 .style(Style::default().bg(PANEL_BG)),
         );
     frame.render_widget(tabs, area);
@@ -131,9 +151,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                 info_lines.push(Line::from(vec![
                     Span::styled(
                         " Update available  ",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         format!(
@@ -141,7 +159,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                             info.remote_tag,
                             format_bytes(info.update_compressed_size)
                         ),
-                        Style::default().fg(Color::Gray),
+                        Style::default().fg(TEXT_DIM),
                     ),
                 ]));
             }
@@ -153,11 +171,8 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                     ""
                 };
                 info_lines.push(Line::from(vec![
-                    Span::styled(" Preinstall  ", Style::default().fg(Color::Magenta)),
-                    Span::styled(
-                        format!("{}{}", tag, suffix),
-                        Style::default().fg(Color::Gray),
-                    ),
+                    Span::styled(" Preinstall  ", Style::default().fg(MAGENTA)),
+                    Span::styled(format!("{}{}", tag, suffix), Style::default().fg(TEXT_DIM)),
                 ]));
             }
         }
@@ -174,17 +189,17 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
 
     let mut action_lines: Vec<Line> = Vec::new();
     if !is_installed {
-        action_lines.push(action_line('d', "Download Game", Color::Yellow));
+        action_lines.push(action_line('d', "Download Game", WARNING));
     }
     if has_update {
-        action_lines.push(action_line('u', "Update", Color::Green));
+        action_lines.push(action_line('u', "Update", SUCCESS));
     }
     if is_installed {
-        action_lines.push(action_line('l', "Launch", Color::Cyan));
-        action_lines.push(action_line('v', "Verify Files", Color::White));
+        action_lines.push(action_line('l', "Launch", ACCENT));
+        action_lines.push(action_line('v', "Verify Files", TEXT));
     }
     if has_preinstall {
-        action_lines.push(action_line('p', "Preinstall", Color::Magenta));
+        action_lines.push(action_line('p', "Preinstall", MAGENTA));
     }
 
     // Calculate container heights (1 row padding top + bottom)
@@ -225,7 +240,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                         .map(|t| format!("v{}", t))
                         .unwrap_or_else(|| "Not installed".to_owned())
                 ),
-                Style::default().fg(Color::Gray),
+                Style::default().fg(TEXT_DIM),
             )),
         ];
         frame.render_widget(Paragraph::new(header_lines), inner);
@@ -261,10 +276,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
             let inner = shrink(actions_rect, 1, 1);
             let actions_content = Paragraph::new(action_lines).block(
                 Block::default()
-                    .title(Span::styled(
-                        " Actions ",
-                        Style::default().fg(Color::DarkGray),
-                    ))
+                    .title(Span::styled(" Actions ", Style::default().fg(TEXT_MUTED)))
                     .borders(Borders::NONE),
             );
             frame.render_widget(actions_content, inner);
@@ -368,10 +380,7 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
 
     // Status label (fetching manifest, plugins, etc.)
     if let Some(ref label) = dl.status_label {
-        let line = Line::from(Span::styled(
-            label.as_str(),
-            Style::default().fg(Color::Gray),
-        ));
+        let line = Line::from(Span::styled(label.as_str(), Style::default().fg(TEXT_DIM)));
         frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
         y += 1;
     }
@@ -394,9 +403,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             pct * 100.0
         );
         let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(game_color(game)).bg(Color::DarkGray))
+            .gauge_style(Style::default().fg(game_color(game)).bg(BAR_BG))
             .ratio(pct.clamp(0.0, 1.0))
-            .label(Span::styled(bar_label, Style::default().fg(Color::White)));
+            .label(Span::styled(bar_label, Style::default().fg(TEXT)));
         frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
         y += 1;
     }
@@ -420,9 +429,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             pct * 100.0
         );
         let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(Color::Magenta).bg(Color::DarkGray))
+            .gauge_style(Style::default().fg(MAGENTA).bg(BAR_BG))
             .ratio(pct.clamp(0.0, 1.0))
-            .label(Span::styled(label, Style::default().fg(Color::White)));
+            .label(Span::styled(label, Style::default().fg(TEXT)));
         frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
         y += 1;
     }
@@ -446,9 +455,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             pct * 100.0
         );
         let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray))
+            .gauge_style(Style::default().fg(ACCENT).bg(BAR_BG))
             .ratio(pct.clamp(0.0, 1.0))
-            .label(Span::styled(label, Style::default().fg(Color::White)));
+            .label(Span::styled(label, Style::default().fg(TEXT)));
         frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
         y += 1;
     }
@@ -460,17 +469,14 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             let eta = format!("ETA {}", format_eta_long(dp.eta_seconds));
             let pad = w.saturating_sub(speed.len() + eta.len());
             Line::from(vec![
-                Span::styled(speed, Style::default().fg(Color::Gray)),
+                Span::styled(speed, Style::default().fg(TEXT_DIM)),
                 Span::raw(" ".repeat(pad)),
-                Span::styled(eta, Style::default().fg(Color::Gray)),
+                Span::styled(eta, Style::default().fg(TEXT_DIM)),
             ])
         } else if dp.downloaded_bytes > 0 {
-            Line::from(Span::styled("Paused", Style::default().fg(Color::Gray)))
+            Line::from(Span::styled("Paused", Style::default().fg(TEXT_DIM)))
         } else {
-            Line::from(Span::styled(
-                "Starting...",
-                Style::default().fg(Color::Gray),
-            ))
+            Line::from(Span::styled("Starting...", Style::default().fg(TEXT_DIM)))
         };
         frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
     }
@@ -482,7 +488,7 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let panel_block = Block::default()
         .borders(Borders::ALL)
         .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(Color::DarkGray))
+        .border_style(Style::default().fg(BORDER))
         .style(Style::default().bg(PANEL_BG))
         .padding(Padding::new(2, 2, 1, 1));
     let content_area = panel_block.inner(area);
@@ -498,18 +504,13 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
 
     let header = Paragraph::new(Line::from(Span::styled(
         "  Settings",
-        Style::default()
-            .fg(Color::Cyan)
-            .add_modifier(Modifier::BOLD),
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
     )));
     frame.render_widget(header, layout[0]);
 
     let mut lines: Vec<Line> = Vec::new();
 
-    lines.push(Line::styled(
-        "  Games",
-        Style::default().fg(Color::DarkGray),
-    ));
+    lines.push(Line::styled("  Games", Style::default().fg(TEXT_MUTED)));
     lines.push(Line::from(""));
 
     for game in GameId::ALL {
@@ -524,18 +525,15 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
                 format!("  {:<6}", game.display_name()),
                 Style::default().fg(game_color(game)),
             ),
-            Span::styled(format!("lang: {:<6}", vo), Style::default().fg(Color::Gray)),
-            Span::styled(
-                format!("path: {}", path),
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled(format!("lang: {:<6}", vo), Style::default().fg(TEXT_DIM)),
+            Span::styled(format!("path: {}", path), Style::default().fg(TEXT_MUTED)),
         ]));
     }
 
     lines.push(Line::from(""));
     lines.push(Line::styled(
         "  Components",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(TEXT_MUTED),
     ));
     lines.push(Line::from(""));
 
@@ -552,12 +550,12 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         .as_deref()
         .unwrap_or("not installed");
     lines.push(Line::from(vec![
-        Span::styled("  [1] Proton   ", Style::default().fg(Color::Green)),
-        Span::styled(proton, Style::default().fg(Color::Gray)),
+        Span::styled("  [1] Proton   ", Style::default().fg(SUCCESS)),
+        Span::styled(proton, Style::default().fg(TEXT_DIM)),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("  [2] Jadeite  ", Style::default().fg(Color::Magenta)),
-        Span::styled(jadeite, Style::default().fg(Color::Gray)),
+        Span::styled("  [2] Jadeite  ", Style::default().fg(MAGENTA)),
+        Span::styled(jadeite, Style::default().fg(TEXT_DIM)),
     ]));
 
     let content = Paragraph::new(lines);
@@ -585,13 +583,13 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     };
     let keybinds = Paragraph::new(Line::from(Span::styled(
         keys,
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(TEXT_MUTED),
     )))
     .block(
         Block::default()
             .borders(Borders::TOP)
             .border_set(border::ROUNDED)
-            .border_style(Style::default().fg(Color::DarkGray))
+            .border_style(Style::default().fg(BORDER))
             .style(Style::default().bg(PANEL_BG)),
     );
     frame.render_widget(keybinds, layout[0]);
@@ -601,7 +599,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     let button = Paragraph::new(Line::from(Span::styled(
         format!(" {} ", btn_text),
         Style::default()
-            .fg(Color::Black)
+            .fg(BLACK)
             .bg(btn_color)
             .add_modifier(Modifier::BOLD),
     )))
@@ -609,7 +607,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         Block::default()
             .borders(Borders::TOP)
             .border_set(border::ROUNDED)
-            .border_style(Style::default().fg(Color::DarkGray))
+            .border_style(Style::default().fg(BORDER))
             .style(Style::default().bg(PANEL_BG)),
     );
     frame.render_widget(button, layout[1]);
@@ -617,10 +615,10 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 
 fn primary_button(app: &App) -> (&'static str, Color) {
     if app.download.is_some() {
-        return ("Downloading...", Color::Yellow);
+        return ("Downloading...", WARNING);
     }
     match app.current_view {
-        View::Settings => ("Settings", Color::Cyan),
+        View::Settings => ("Settings", ACCENT),
         _ => {
             let game = app.selected_game();
             let installed = app
@@ -634,11 +632,11 @@ fn primary_button(app: &App) -> (&'static str, Color) {
                 .and_then(|s| s.update_info.as_ref())
                 .is_some_and(|i| i.update_available);
             if has_update {
-                ("Update", Color::Green)
+                ("Update", SUCCESS)
             } else if installed {
-                ("Launch", Color::Cyan)
+                ("Launch", ACCENT)
             } else {
-                ("Get Game", Color::Yellow)
+                ("Get Game", WARNING)
             }
         }
     }
@@ -646,17 +644,17 @@ fn primary_button(app: &App) -> (&'static str, Color) {
 
 fn action_line(key: char, label: &str, color: Color) -> Line<'_> {
     Line::from(vec![
-        Span::styled(format!(" [{}] ", key), Style::default().fg(Color::DarkGray)),
+        Span::styled(format!(" [{}] ", key), Style::default().fg(TEXT_MUTED)),
         Span::styled(label, Style::default().fg(color)),
     ])
 }
 
 fn game_color(game: GameId) -> Color {
     match game {
-        GameId::Bh3 => Color::LightRed,
-        GameId::Hk4e => Color::Yellow,
-        GameId::Hkrpg => Color::LightCyan,
-        GameId::Nap => Color::LightGreen,
+        GameId::Bh3 => GAME_BH3,
+        GameId::Hk4e => GAME_HK4E,
+        GameId::Hkrpg => GAME_HKRPG,
+        GameId::Nap => GAME_NAP,
     }
 }
 
