@@ -23,12 +23,32 @@ pub struct GameStatus {
     pub update_info: Option<UpdateInfo>,
 }
 
-/// Tracks an in-flight download operation.
+/// Tracks an in-flight download operation with per-phase progress.
 pub struct ActiveDownload {
     pub game_id: GameId,
-    pub progress: SophonProgress,
     pub handle: DownloadHandle,
     pub paused: bool,
+    /// Current download phase progress (bytes).
+    pub download_progress: Option<DownloadPhase>,
+    /// Current verify/assemble phase progress (files).
+    pub verify_progress: Option<VerifyPhase>,
+    /// Short status label for misc phases (fetching manifest, installing plugins, etc.)
+    pub status_label: Option<String>,
+}
+
+/// Download byte progress.
+pub struct DownloadPhase {
+    pub downloaded_bytes: u64,
+    pub total_bytes: u64,
+    pub speed_bps: f64,
+    pub eta_seconds: f64,
+}
+
+/// Verify/assemble file progress.
+pub struct VerifyPhase {
+    pub label: String,
+    pub done: u64,
+    pub total: u64,
 }
 
 /// Central application state for the TUI.
@@ -100,43 +120,143 @@ impl App {
         };
     }
 
-    /// Begins tracking a new download.
+    /// Begins tracking a new download. Stays on the current view.
     pub fn start_download(&mut self, game_id: GameId, handle: DownloadHandle) {
         self.download = Some(ActiveDownload {
             game_id,
-            progress: SophonProgress::FetchingManifest,
             handle,
             paused: false,
+            download_progress: None,
+            verify_progress: None,
+            status_label: Some("Fetching manifest...".to_owned()),
         });
-        self.current_view = View::Downloading;
     }
 
-    /// Updates download progress. Transitions to GameDetail on terminal states.
+    /// Updates download progress. Routes to the appropriate phase bar.
     pub fn update_progress(&mut self, progress: SophonProgress) {
         match &progress {
             SophonProgress::Finished => {
                 self.status_message = Some("Operation completed.".to_owned());
                 self.download = None;
-                self.current_view = View::GameDetail;
                 return;
             }
             SophonProgress::Error { message } => {
                 self.error_message = Some(message.clone());
                 self.download = None;
-                self.current_view = View::GameDetail;
                 return;
             }
             _ => {}
         }
-        if let Some(dl) = &mut self.download {
-            dl.progress = progress;
+        let Some(dl) = &mut self.download else { return };
+        match progress {
+            SophonProgress::Downloading {
+                downloaded_bytes,
+                total_bytes,
+                speed_bps,
+                eta_seconds,
+            } => {
+                dl.status_label = None;
+                dl.download_progress = Some(DownloadPhase {
+                    downloaded_bytes,
+                    total_bytes,
+                    speed_bps,
+                    eta_seconds,
+                });
+            }
+            SophonProgress::Paused {
+                downloaded_bytes,
+                total_bytes,
+            } => {
+                dl.download_progress = Some(DownloadPhase {
+                    downloaded_bytes,
+                    total_bytes,
+                    speed_bps: 0.0,
+                    eta_seconds: 0.0,
+                });
+                dl.status_label = Some("Paused".to_owned());
+            }
+            SophonProgress::Verifying {
+                scanned_files,
+                total_files,
+                ..
+            } => {
+                dl.status_label = None;
+                dl.verify_progress = Some(VerifyPhase {
+                    label: "Verifying".to_owned(),
+                    done: scanned_files,
+                    total: total_files,
+                });
+            }
+            SophonProgress::Assembling {
+                assembled_files,
+                total_files,
+            } => {
+                dl.status_label = None;
+                dl.verify_progress = Some(VerifyPhase {
+                    label: "Assembling".to_owned(),
+                    done: assembled_files,
+                    total: total_files,
+                });
+            }
+            SophonProgress::CheckingFiles {
+                checked_files,
+                total_files,
+            } => {
+                dl.status_label = None;
+                dl.verify_progress = Some(VerifyPhase {
+                    label: "Checking".to_owned(),
+                    done: checked_files,
+                    total: total_files,
+                });
+            }
+            SophonProgress::CalculatingDownloads {
+                checked_files,
+                total_files,
+            } => {
+                dl.status_label = Some(format!("Calculating {}/{}", checked_files, total_files));
+            }
+            SophonProgress::ApplyingPreinstall {
+                applied_files,
+                total_files,
+            } => {
+                dl.status_label = None;
+                dl.verify_progress = Some(VerifyPhase {
+                    label: "Applying".to_owned(),
+                    done: applied_files,
+                    total: total_files,
+                });
+            }
+            SophonProgress::FetchingManifest => {
+                dl.status_label = Some("Fetching manifest...".to_owned());
+            }
+            SophonProgress::InstallingPlugins { current_plugin, .. } => {
+                dl.status_label = Some(format!("Plugin: {}", current_plugin));
+            }
+            SophonProgress::DownloadingPlugin {
+                name,
+                downloaded_bytes,
+                total_bytes,
+            } => {
+                dl.status_label = None;
+                dl.download_progress = Some(DownloadPhase {
+                    downloaded_bytes,
+                    total_bytes,
+                    speed_bps: 0.0,
+                    eta_seconds: 0.0,
+                });
+                dl.verify_progress = Some(VerifyPhase {
+                    label: format!("Plugin: {}", name),
+                    done: downloaded_bytes,
+                    total: total_bytes,
+                });
+            }
+            _ => {}
         }
     }
 
-    /// Clears the active download and returns to game detail.
+    /// Clears the active download.
     pub fn finish_download(&mut self) {
         self.download = None;
-        self.current_view = View::GameDetail;
     }
 
     /// Dismisses the current error message.

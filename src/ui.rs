@@ -8,7 +8,6 @@ use ratatui::Frame;
 use crate::app::{App, View};
 use crate::game::GameId;
 use crate::quadrant::QuadrantImage;
-use irmin::SophonProgress;
 
 /// Dark translucent panel background for text readability over the image.
 /// Approximates ~50% opacity black over a typical dark game background.
@@ -17,7 +16,10 @@ const PANEL_BG: Color = Color::Rgb(15, 15, 22);
 /// Renders the full TUI frame based on current application state.
 pub fn draw(frame: &mut Frame, app: &App) {
     // Render background image across the full terminal area
-    if matches!(app.current_view, View::GameList | View::GameDetail) {
+    if matches!(
+        app.current_view,
+        View::GameList | View::GameDetail | View::Downloading
+    ) {
         if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
             frame.render_widget(bg, frame.area());
         }
@@ -58,8 +60,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
         frame.render_widget(status, outer[1]);
     } else {
         match app.current_view {
-            View::GameList | View::GameDetail => draw_main_panel(frame, app, outer[1]),
-            View::Downloading => draw_downloading(frame, app, outer[1]),
+            View::GameList | View::GameDetail | View::Downloading => {
+                draw_main_panel(frame, app, outer[1]);
+                // Draw progress overlay if download is active
+                if app.download.is_some() {
+                    draw_progress_overlay(frame, app, outer[1]);
+                }
+            }
             View::Settings => draw_settings(frame, app, outer[1]),
         }
     }
@@ -304,56 +311,104 @@ fn shrink(r: Rect, h: u16, v: u16) -> Rect {
     )
 }
 
-fn draw_downloading(frame: &mut Frame, app: &App, area: Rect) {
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(3), // Game name
-            Constraint::Min(0),    // Progress
-            Constraint::Length(2), // Speed/ETA
-        ])
-        .split(area);
+/// Draws compact progress bars in the bottom-left corner of the main area.
+fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
+    let Some(dl) = &app.download else { return };
+    let bg_img = app.backgrounds.get(&dl.game_id);
+    let game = dl.game_id;
 
-    let game = app
-        .download
-        .as_ref()
-        .map(|d| d.game_id)
-        .unwrap_or(app.active_game);
-    let title = Paragraph::new(Line::from(vec![
-        Span::raw("  "),
-        Span::styled(
-            game.display_name(),
-            Style::default()
-                .fg(game_color(game))
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
-    frame.render_widget(title, layout[0]);
+    // Calculate how many rows we need
+    let mut rows: u16 = 0;
+    if dl.status_label.is_some() {
+        rows += 1;
+    }
+    if dl.download_progress.is_some() {
+        rows += 1;
+    }
+    if dl.verify_progress.is_some() {
+        rows += 1;
+    }
+    if rows == 0 {
+        return;
+    }
+    rows += 2; // vertical padding
 
-    let progress = app.download.as_ref().map(|d| &d.progress);
-    let (label, ratio, detail) = progress_info(progress);
+    let overlay_width = 55u16.min(area.width.saturating_sub(2));
+    let overlay_rect = Rect::new(
+        area.x + 1,
+        area.bottom().saturating_sub(rows + 1),
+        overlay_width,
+        rows,
+    );
 
-    let gauge = Gauge::default()
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        )
-        .gauge_style(Style::default().fg(game_color(game)).bg(Color::DarkGray))
-        .ratio(ratio.clamp(0.0, 1.0))
-        .label(Span::styled(
-            label,
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
+    if overlay_rect.height == 0 || overlay_rect.y < area.y {
+        return;
+    }
+
+    render_container(frame, overlay_rect, bg_img);
+    let inner = shrink(overlay_rect, 2, 1);
+    let mut y = inner.y;
+
+    // Status label (fetching manifest, calculating, plugins, etc.)
+    if let Some(ref label) = dl.status_label {
+        let line = Line::from(Span::styled(
+            label.as_str(),
+            Style::default().fg(Color::Gray),
         ));
-    frame.render_widget(gauge, layout[1]);
+        frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
+        y += 1;
+    }
 
-    let detail_line = Paragraph::new(Line::from(vec![
-        Span::raw("  "),
-        Span::styled(detail, Style::default().fg(Color::Gray)),
-    ]));
-    frame.render_widget(detail_line, layout[2]);
+    // Download bar
+    if let Some(ref dp) = dl.download_progress {
+        let pct = if dp.total_bytes > 0 {
+            dp.downloaded_bytes as f64 / dp.total_bytes as f64
+        } else {
+            0.0
+        };
+        let label = if dp.speed_bps > 0.0 {
+            format!(
+                " Downloading {:.1}%  {}/s  ETA {}",
+                pct * 100.0,
+                format_bytes(dp.speed_bps as u64),
+                format_eta(dp.eta_seconds)
+            )
+        } else {
+            format!(
+                " Downloading {:.1}%  {}/{}",
+                pct * 100.0,
+                format_bytes(dp.downloaded_bytes),
+                format_bytes(dp.total_bytes)
+            )
+        };
+        let gauge = Gauge::default()
+            .gauge_style(Style::default().fg(game_color(game)).bg(Color::DarkGray))
+            .ratio(pct.clamp(0.0, 1.0))
+            .label(Span::styled(label, Style::default().fg(Color::White)));
+        frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
+        y += 1;
+    }
+
+    // Verify/assemble bar
+    if let Some(ref vp) = dl.verify_progress {
+        let pct = if vp.total > 0 {
+            vp.done as f64 / vp.total as f64
+        } else {
+            0.0
+        };
+        let label = format!(
+            " {} {}/{}  {:.1}%",
+            vp.label,
+            vp.done,
+            vp.total,
+            pct * 100.0
+        );
+        let gauge = Gauge::default()
+            .gauge_style(Style::default().fg(Color::Cyan).bg(Color::DarkGray))
+            .ratio(pct.clamp(0.0, 1.0))
+            .label(Span::styled(label, Style::default().fg(Color::White)));
+        frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
+    }
 }
 
 fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
@@ -453,10 +508,15 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         .split(area);
 
     // Left: keybinds
-    let keys = match app.current_view {
-        View::GameList | View::GameDetail => " q quit  s settings  <-/-> switch game",
-        View::Downloading => " p pause  r resume  c cancel",
-        View::Settings => " esc back  1 proton  2 jadeite",
+    let keys = if app.download.is_some() {
+        " q quit  p pause  r resume  c cancel  <-/-> switch game"
+    } else {
+        match app.current_view {
+            View::GameList | View::GameDetail | View::Downloading => {
+                " q quit  s settings  <-/-> switch game"
+            }
+            View::Settings => " esc back  1 proton  2 jadeite",
+        }
     };
     let keybinds = Paragraph::new(Line::from(Span::styled(
         keys,
@@ -491,8 +551,10 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn primary_button(app: &App) -> (&'static str, Color) {
+    if app.download.is_some() {
+        return ("Downloading...", Color::Yellow);
+    }
     match app.current_view {
-        View::Downloading => ("Downloading...", Color::Yellow),
         View::Settings => ("Settings", Color::Cyan),
         _ => {
             let game = app.selected_game();
@@ -530,149 +592,6 @@ fn game_color(game: GameId) -> Color {
         GameId::Hk4e => Color::Yellow,
         GameId::Hkrpg => Color::LightCyan,
         GameId::Nap => Color::LightGreen,
-    }
-}
-
-fn progress_info(progress: Option<&SophonProgress>) -> (String, f64, String) {
-    match progress {
-        Some(SophonProgress::Downloading {
-            downloaded_bytes,
-            total_bytes,
-            speed_bps,
-            eta_seconds,
-        }) => {
-            let pct = if *total_bytes > 0 {
-                *downloaded_bytes as f64 / *total_bytes as f64
-            } else {
-                0.0
-            };
-            let label = format!("{:.1}%", pct * 100.0);
-            let detail = format!(
-                "{}/s  ETA {}",
-                format_bytes(*speed_bps as u64),
-                format_eta(*eta_seconds)
-            );
-            (label, pct, detail)
-        }
-        Some(SophonProgress::Paused {
-            downloaded_bytes,
-            total_bytes,
-        }) => {
-            let pct = if *total_bytes > 0 {
-                *downloaded_bytes as f64 / *total_bytes as f64
-            } else {
-                0.0
-            };
-            (
-                format!("Paused {:.1}%", pct * 100.0),
-                pct,
-                "Paused".to_owned(),
-            )
-        }
-        Some(SophonProgress::FetchingManifest) => (
-            "Fetching...".to_owned(),
-            0.0,
-            "Fetching manifest".to_owned(),
-        ),
-        Some(SophonProgress::CalculatingDownloads {
-            checked_files,
-            total_files,
-        }) => {
-            let pct = if *total_files > 0 {
-                *checked_files as f64 / *total_files as f64
-            } else {
-                0.0
-            };
-            (
-                format!("{}/{}", checked_files, total_files),
-                pct,
-                "Calculating downloads".to_owned(),
-            )
-        }
-        Some(SophonProgress::Assembling {
-            assembled_files,
-            total_files,
-        }) => {
-            let pct = if *total_files > 0 {
-                *assembled_files as f64 / *total_files as f64
-            } else {
-                0.0
-            };
-            (
-                format!("{}/{}", assembled_files, total_files),
-                pct,
-                "Assembling files".to_owned(),
-            )
-        }
-        Some(SophonProgress::Verifying {
-            scanned_files,
-            total_files,
-            error_count,
-        }) => {
-            let pct = if *total_files > 0 {
-                *scanned_files as f64 / *total_files as f64
-            } else {
-                0.0
-            };
-            (
-                format!("{}/{}", scanned_files, total_files),
-                pct,
-                format!("Verifying ({} errors)", error_count),
-            )
-        }
-        Some(SophonProgress::CheckingFiles {
-            checked_files,
-            total_files,
-        }) => {
-            let pct = if *total_files > 0 {
-                *checked_files as f64 / *total_files as f64
-            } else {
-                0.0
-            };
-            (
-                format!("{}/{}", checked_files, total_files),
-                pct,
-                "Checking files".to_owned(),
-            )
-        }
-        Some(SophonProgress::ApplyingPreinstall {
-            applied_files,
-            total_files,
-        }) => {
-            let pct = if *total_files > 0 {
-                *applied_files as f64 / *total_files as f64
-            } else {
-                0.0
-            };
-            (
-                format!("{}/{}", applied_files, total_files),
-                pct,
-                "Applying preinstall".to_owned(),
-            )
-        }
-        Some(SophonProgress::InstallingPlugins { current_plugin, .. }) => {
-            (current_plugin.clone(), 0.0, "Installing plugins".to_owned())
-        }
-        Some(SophonProgress::DownloadingPlugin {
-            name,
-            downloaded_bytes,
-            total_bytes,
-        }) => {
-            let pct = if *total_bytes > 0 {
-                *downloaded_bytes as f64 / *total_bytes as f64
-            } else {
-                0.0
-            };
-            (
-                format!("{:.1}%", pct * 100.0),
-                pct,
-                format!("Plugin: {}", name),
-            )
-        }
-        Some(SophonProgress::Finished) => ("Done".to_owned(), 1.0, "Complete".to_owned()),
-        Some(SophonProgress::Error { message }) => ("Error".to_owned(), 0.0, message.clone()),
-        Some(SophonProgress::Warning { message }) => ("Warning".to_owned(), 0.0, message.clone()),
-        _ => ("...".to_owned(), 0.0, "Waiting".to_owned()),
     }
 }
 

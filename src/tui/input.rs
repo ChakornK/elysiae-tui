@@ -19,8 +19,9 @@ pub async fn handle_key(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match app.current_view {
-        View::GameList | View::GameDetail => handle_main(app, key, client, progress_tx, terminal).await,
-        View::Downloading => handle_downloading(app, key),
+        View::GameList | View::GameDetail | View::Downloading => {
+            handle_main(app, key, client, progress_tx, terminal).await
+        }
         View::Settings => handle_settings(app, key, client),
     }
 }
@@ -33,6 +34,31 @@ async fn handle_main(
     progress_tx: &Sender<SophonProgress>,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Download controls take priority when active
+    if app.download.is_some() {
+        match key {
+            KeyCode::Char('p') => {
+                if let Some(ref mut dl) = app.download {
+                    dl.handle.pause();
+                    dl.paused = true;
+                }
+                return Ok(());
+            }
+            KeyCode::Char('r') => {
+                if let Some(ref mut dl) = app.download {
+                    dl.handle.resume();
+                    dl.paused = false;
+                }
+                return Ok(());
+            }
+            KeyCode::Char('c') => {
+                app.finish_download();
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
+
     match key {
         KeyCode::Char('q') => app.should_quit = true,
         // Tab switching via arrow keys or Tab/BackTab
@@ -63,26 +89,6 @@ async fn handle_main(
         KeyCode::Char('v') => actions::start_verify(app, client, progress_tx),
         KeyCode::Char('p') => actions::start_preinstall(app, client, progress_tx),
         KeyCode::Char('s') => app.current_view = View::Settings,
-        _ => {}
-    }
-    Ok(())
-}
-
-fn handle_downloading(app: &mut App, key: KeyCode) -> Result<(), Box<dyn std::error::Error>> {
-    match key {
-        KeyCode::Char('p') => {
-            if let Some(ref mut dl) = app.download {
-                dl.handle.pause();
-                dl.paused = true;
-            }
-        }
-        KeyCode::Char('r') => {
-            if let Some(ref mut dl) = app.download {
-                dl.handle.resume();
-                dl.paused = false;
-            }
-        }
-        KeyCode::Char('c') => app.finish_download(),
         _ => {}
     }
     Ok(())
