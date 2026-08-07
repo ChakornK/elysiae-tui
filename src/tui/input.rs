@@ -61,26 +61,21 @@ async fn handle_main(
 
     match key {
         KeyCode::Char('q') => app.should_quit = true,
-        // Tab switching via arrow keys or Tab/BackTab
         KeyCode::Left => {
             app.prev_game();
             app.active_game = app.selected_game();
-            actions::refresh_update_info(app, client).await;
         }
         KeyCode::Right => {
             app.next_game();
             app.active_game = app.selected_game();
-            actions::refresh_update_info(app, client).await;
         }
         KeyCode::Tab => {
             app.next_game();
             app.active_game = app.selected_game();
-            actions::refresh_update_info(app, client).await;
         }
         KeyCode::BackTab => {
             app.prev_game();
             app.active_game = app.selected_game();
-            actions::refresh_update_info(app, client).await;
         }
         // Number keys to switch tabs directly
         KeyCode::Char(n @ '1'..='4') => {
@@ -88,7 +83,6 @@ async fn handle_main(
             if idx < crate::game::GameId::ALL.len() {
                 app.game_list_index = idx;
                 app.active_game = app.selected_game();
-                actions::refresh_update_info(app, client).await;
             }
         }
         // Actions on current game
