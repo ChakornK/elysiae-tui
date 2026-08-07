@@ -124,6 +124,9 @@ impl App {
     pub fn update_progress(&mut self, progress: SophonProgress) {
         match &progress {
             SophonProgress::Finished => {
+                // Persist component versions if newly installed
+                self.sync_component_versions();
+
                 if let Some(ref dl) = self.download {
                     if dl.launch_on_complete {
                         self.ready_to_launch = true;
@@ -295,5 +298,22 @@ impl App {
     /// Dismisses the current status message.
     pub fn dismiss_status(&mut self) {
         self.status_message = None;
+    }
+
+    /// Reads component tag files and saves to config if changed.
+    fn sync_component_versions(&mut self) {
+        use crate::components::read_component_tag;
+        let data_dir = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+            .join("elysiae-tui");
+        let proton = read_component_tag(&data_dir, "proton");
+        let jadeite = read_component_tag(&data_dir, "jadeite");
+        let cv = &mut self.config.installed_components;
+        let changed = cv.proton != proton || cv.jadeite != jadeite;
+        if changed {
+            cv.proton = proton;
+            cv.jadeite = jadeite;
+            let _ = self.config.save();
+        }
     }
 }
