@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Gauge, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{App, View};
@@ -371,6 +371,41 @@ fn shrink(r: Rect, h: u16, v: u16) -> Rect {
     )
 }
 
+/// Renders a progress bar with dark text on the filled area and light text on unfilled.
+fn render_progress_bar(frame: &mut Frame, area: Rect, ratio: f64, label: &str, fill_color: Color) {
+    let width = area.width as usize;
+    let filled = ((width as f64) * ratio.clamp(0.0, 1.0)).round() as u16;
+
+    // Center the label
+    let label_chars: Vec<char> = label.chars().collect();
+    let label_len = label_chars.len().min(width);
+    let label_start = (width.saturating_sub(label_len)) / 2;
+
+    let buf = frame.buffer_mut();
+    for x in 0..area.width {
+        let abs_x = area.x + x;
+        let cell = &mut buf[(abs_x, area.y)];
+        let in_filled = x < filled;
+
+        // Determine which label char (if any) is at this position
+        let pos = x as usize;
+        let ch = if pos >= label_start && pos < label_start + label_len {
+            label_chars[pos - label_start]
+        } else {
+            ' '
+        };
+
+        cell.set_char(ch);
+        if in_filled {
+            cell.set_bg(fill_color);
+            cell.set_fg(SECONDARY_BG);
+        } else {
+            cell.set_bg(BAR_BG);
+            cell.set_fg(TEXT);
+        }
+    }
+}
+
 /// Draws compact progress bars in the bottom-left corner of the main area.
 fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     let Some(dl) = &app.download else { return };
@@ -452,11 +487,13 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             format_bytes(dp.total_bytes),
             pct * 100.0
         );
-        let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(game_color(game)).bg(BAR_BG))
-            .ratio(pct.clamp(0.0, 1.0))
-            .label(Span::styled(bar_label, Style::default().fg(TEXT)));
-        frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
+        render_progress_bar(
+            frame,
+            Rect::new(inner.x, y, inner.width, 1),
+            pct,
+            &bar_label,
+            game_color(game),
+        );
         y += 1;
     }
 
@@ -476,11 +513,13 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             ap.total,
             pct * 100.0
         );
-        let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(MAGENTA).bg(BAR_BG))
-            .ratio(pct.clamp(0.0, 1.0))
-            .label(Span::styled(label, Style::default().fg(TEXT)));
-        frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
+        render_progress_bar(
+            frame,
+            Rect::new(inner.x, y, inner.width, 1),
+            pct,
+            &label,
+            MAGENTA,
+        );
         y += 1;
     }
 
@@ -500,11 +539,13 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             cp.total,
             pct * 100.0
         );
-        let gauge = Gauge::default()
-            .gauge_style(Style::default().fg(ACCENT).bg(BAR_BG))
-            .ratio(pct.clamp(0.0, 1.0))
-            .label(Span::styled(label, Style::default().fg(TEXT)));
-        frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
+        render_progress_bar(
+            frame,
+            Rect::new(inner.x, y, inner.width, 1),
+            pct,
+            &label,
+            ACCENT,
+        );
         y += 1;
     }
 
