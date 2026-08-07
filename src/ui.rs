@@ -828,3 +828,126 @@ fn format_eta_long(seconds: f64) -> String {
         format!("{}:{:02}", m, sec)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn format_bytes_kb() {
+        assert_eq!(format_bytes(512), "0.5 KB");
+        assert_eq!(format_bytes(1024), "1.0 KB");
+    }
+
+    #[test]
+    fn format_bytes_mb() {
+        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(format_bytes(52_428_800), "50.0 MB");
+    }
+
+    #[test]
+    fn format_bytes_gb() {
+        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.0 GB");
+        assert_eq!(format_bytes(108_000_000_000), "100.6 GB");
+    }
+
+    #[test]
+    fn eta_seconds_only() {
+        assert_eq!(format_eta_long(0.0), "0:00");
+        assert_eq!(format_eta_long(5.0), "0:05");
+        assert_eq!(format_eta_long(59.0), "0:59");
+    }
+
+    #[test]
+    fn eta_minutes() {
+        assert_eq!(format_eta_long(60.0), "1:00");
+        assert_eq!(format_eta_long(90.0), "1:30");
+        assert_eq!(format_eta_long(381.0), "6:21");
+    }
+
+    #[test]
+    fn eta_hours() {
+        assert_eq!(format_eta_long(3600.0), "1:00:00");
+        assert_eq!(format_eta_long(6751.0), "1:52:31");
+    }
+
+    #[test]
+    fn primary_button_not_installed() {
+        let config = crate::config::Config::default();
+        let app = crate::app::App::new(config);
+        let (label, key) = primary_button(&app);
+        assert_eq!(label, "Get Game");
+        assert_eq!(key, "⏎");
+    }
+
+    #[test]
+    fn primary_button_installed() {
+        let config = crate::config::Config::default();
+        let mut app = crate::app::App::new(config);
+        let game = app.selected_game();
+        app.games.insert(
+            game,
+            crate::app::GameStatus {
+                installed_tag: Some("1.0.0".to_owned()),
+                update_info: None,
+                has_resume: false,
+            },
+        );
+        let (label, key) = primary_button(&app);
+        assert_eq!(label, "Launch");
+        assert_eq!(key, "⏎");
+    }
+
+    #[test]
+    fn primary_button_has_resume() {
+        let config = crate::config::Config::default();
+        let mut app = crate::app::App::new(config);
+        let game = app.selected_game();
+        app.games.insert(
+            game,
+            crate::app::GameStatus {
+                installed_tag: None,
+                update_info: None,
+                has_resume: true,
+            },
+        );
+        let (label, key) = primary_button(&app);
+        assert_eq!(label, "Resume");
+        assert_eq!(key, "⏎");
+    }
+
+    #[test]
+    fn primary_button_downloading_same_game() {
+        let config = crate::config::Config::default();
+        let mut app = crate::app::App::new(config);
+        let game = app.selected_game();
+        let handle = irmin::DownloadHandle::new();
+        app.start_download(game, handle);
+        let (label, key) = primary_button(&app);
+        assert_eq!(label, "Downloading...");
+        assert_eq!(key, "p");
+    }
+
+    #[test]
+    fn primary_button_downloading_other_game_installed() {
+        let config = crate::config::Config::default();
+        let mut app = crate::app::App::new(config);
+        // Install the selected game (index 0 = Bh3 by default... actually default is Hk4e)
+        let selected = app.selected_game();
+        app.games.insert(
+            selected,
+            crate::app::GameStatus {
+                installed_tag: Some("1.0.0".to_owned()),
+                update_info: None,
+                has_resume: false,
+            },
+        );
+        // Start download on a different game
+        let other = crate::game::GameId::Nap;
+        let handle = irmin::DownloadHandle::new();
+        app.start_download(other, handle);
+        let (label, key) = primary_button(&app);
+        assert_eq!(label, "Launch");
+        assert_eq!(key, "⏎");
+    }
+}
