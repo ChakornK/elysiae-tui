@@ -32,12 +32,24 @@ mod palette {
 
 use palette::*;
 
+// Layout constants
+const CONTAINER_PAD_H: u16 = 2;
+const CONTAINER_PAD_V: u16 = 1;
+const EDGE_PAD_H: u16 = 2;
+const EDGE_PAD_V: u16 = 1;
+const MAIN_PANEL_MAX_WIDTH: u16 = 50;
+const PROGRESS_MAX_WIDTH: u16 = 55;
+const TAB_BAR_HEIGHT: u16 = 4;
+const ACTION_BAR_HEIGHT: u16 = 4;
+const MIN_TERMINAL_WIDTH: u16 = 40;
+const MIN_TERMINAL_HEIGHT: u16 = 10;
+
 /// Renders the full TUI frame based on current application state.
 pub fn draw(frame: &mut Frame, app: &App) {
     let area = frame.area();
 
     // Bail out if terminal is too small to render
-    if area.width < 40 || area.height < 10 {
+    if area.width < MIN_TERMINAL_WIDTH || area.height < MIN_TERMINAL_HEIGHT {
         let msg = "Terminal too small";
         let x = area.width.saturating_sub(msg.len() as u16) / 2;
         let y = area.height / 2;
@@ -59,24 +71,24 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(4), // Game tabs (1 gap + 3 container)
-            Constraint::Min(0),    // Main content
-            Constraint::Length(4), // Action bar
+            Constraint::Length(TAB_BAR_HEIGHT),
+            Constraint::Min(0),
+            Constraint::Length(ACTION_BAR_HEIGHT),
         ])
         .split(frame.area());
 
-    // Inset the top and bottom bars for floating effect
+    // Inset top and bottom bars for floating effect
     let tab_area = Rect::new(
-        outer[0].x + 2,
-        outer[0].y + 1,
-        outer[0].width.saturating_sub(4),
-        outer[0].height.saturating_sub(1),
+        outer[0].x + EDGE_PAD_H,
+        outer[0].y + EDGE_PAD_V,
+        outer[0].width.saturating_sub(EDGE_PAD_H * 2),
+        outer[0].height.saturating_sub(EDGE_PAD_V),
     );
     let bar_area = Rect::new(
-        outer[2].x + 2,
+        outer[2].x + EDGE_PAD_H,
         outer[2].y,
-        outer[2].width.saturating_sub(4),
-        outer[2].height.saturating_sub(1),
+        outer[2].width.saturating_sub(EDGE_PAD_H * 2),
+        outer[2].height.saturating_sub(EDGE_PAD_V),
     );
 
     // Top: game selector tabs
@@ -260,9 +272,9 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     // Layout containers vertically with gaps
-    let mut y = area.y + 1; // 1-row margin from top
-    let container_width = 50u16.min(area.width.saturating_sub(4));
-    let x = area.x + 2; // 2-col margin from left
+    let mut y = area.y + 1;
+    let container_width = MAIN_PANEL_MAX_WIDTH.min(area.width.saturating_sub(EDGE_PAD_H * 2));
+    let x = area.x + EDGE_PAD_H;
 
     // Header container
     let header_rect = Rect::new(
@@ -385,9 +397,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     }
     rows += 2; // vertical padding
 
-    let overlay_width = 55u16.min(area.width.saturating_sub(2));
+    let overlay_width = PROGRESS_MAX_WIDTH.min(area.width.saturating_sub(EDGE_PAD_H * 2));
     let overlay_rect = Rect::new(
-        area.x + 2,
+        area.x + EDGE_PAD_H,
         area.bottom().saturating_sub(rows + 1),
         overlay_width,
         rows,
