@@ -816,14 +816,13 @@ fn primary_button(app: &App) -> (&'static str, &'static str) {
         let has_update = status
             .and_then(|s| s.update_info.as_ref())
             .is_some_and(|i| i.update_available);
-        if installed && !has_update {
-            return ("Launch", "⏎");
-        }
         let has_resume = status.is_some_and(|s| s.has_resume);
         if has_update {
             return ("Update", "⏎");
         } else if has_resume {
             return ("Resume", "⏎");
+        } else if installed {
+            return ("Launch", "⏎");
         } else {
             return ("Get Game", "⏎");
         }
