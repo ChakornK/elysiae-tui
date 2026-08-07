@@ -54,6 +54,18 @@ impl QuadrantImage {
         }
     }
 
+    /// Darkens all cells by 50% (blend with black). Mutates in place.
+    pub fn darken(&mut self) {
+        for cell in &mut self.cells {
+            if let Color::Rgb(r, g, b) = cell.fg {
+                cell.fg = Color::Rgb(r / 2, g / 2, b / 2);
+            }
+            if let Color::Rgb(r, g, b) = cell.bg {
+                cell.bg = Color::Rgb(r / 2, g / 2, b / 2);
+            }
+        }
+    }
+
     /// Writes the encoded image to a binary cache file.
     pub fn write_cache(&self, path: &Path) -> io::Result<()> {
         let cell_count = self.cells.len();

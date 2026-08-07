@@ -156,7 +156,8 @@ fn load_from_cache(app: &mut App, term_size: (u16, u16)) {
             continue;
         }
         let path = dir.join(format!("{}_{cols}x{rows}.qcache", game.as_str()));
-        if let Ok(img) = QuadrantImage::read_cache(&path) {
+        if let Ok(mut img) = QuadrantImage::read_cache(&path) {
+            img.darken();
             app.backgrounds.insert(game, img);
         }
     }
@@ -196,8 +197,9 @@ fn encode_missing(
         let resized = img.resize_exact(grid_w, grid_h, image::imageops::FilterType::Lanczos3);
         let rgb = resized.to_rgb8();
 
-        let encoded = QuadrantImage::encode(&rgb, cols, rows);
+        let mut encoded = QuadrantImage::encode(&rgb, cols, rows);
         let _ = encoded.write_cache(&cache_path);
+        encoded.darken();
         map.insert(game, encoded);
     }
 
