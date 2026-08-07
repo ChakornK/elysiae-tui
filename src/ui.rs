@@ -323,9 +323,25 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         rows += 1;
     }
     if dl.download_progress.is_some() {
-        rows += 2; // bar + ETA line
+        if rows > 0 {
+            rows += 1;
+        }
+        rows += 1;
     }
-    if dl.verify_progress.is_some() {
+    if dl.assemble_progress.is_some() {
+        if rows > 0 {
+            rows += 1;
+        }
+        rows += 1;
+    }
+    if dl.check_progress.is_some() {
+        if rows > 0 {
+            rows += 1;
+        }
+        rows += 1;
+    }
+    // Speed/ETA always at bottom when downloading
+    if dl.download_progress.is_some() {
         rows += 1;
     }
     if rows == 0 {
@@ -349,7 +365,7 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     let inner = shrink(overlay_rect, 2, 1);
     let mut y = inner.y;
 
-    // Status label (fetching manifest, calculating, plugins, etc.)
+    // Status label (fetching manifest, plugins, etc.)
     if let Some(ref label) = dl.status_label {
         let line = Line::from(Span::styled(
             label.as_str(),
@@ -359,18 +375,22 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         y += 1;
     }
 
-    // Download bar
+    // Download bar: "Downloading - X.XX GB/Y.YY GB (Z.ZZ%)"
     if let Some(ref dp) = dl.download_progress {
+        if y > inner.y {
+            y += 1;
+        }
+
         let pct = if dp.total_bytes > 0 {
             dp.downloaded_bytes as f64 / dp.total_bytes as f64
         } else {
             0.0
         };
         let bar_label = format!(
-            " Downloading {:.1}%  {}/{}",
-            pct * 100.0,
+            "Downloading - {}/{} ({:.2}%)",
             format_bytes(dp.downloaded_bytes),
-            format_bytes(dp.total_bytes)
+            format_bytes(dp.total_bytes),
+            pct * 100.0
         );
         let gauge = Gauge::default()
             .gauge_style(Style::default().fg(game_color(game)).bg(Color::DarkGray))
@@ -378,39 +398,50 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             .label(Span::styled(bar_label, Style::default().fg(Color::White)));
         frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
         y += 1;
-
-        // ETA line below the bar
-        let eta_text = if dp.speed_bps > 0.0 {
-            format!(
-                " {}/s  ETA {}",
-                format_bytes(dp.speed_bps as u64),
-                format_eta(dp.eta_seconds)
-            )
-        } else if dp.downloaded_bytes > 0 {
-            " Paused".to_owned()
-        } else {
-            " Starting...".to_owned()
-        };
-        let eta_line = Line::from(Span::styled(eta_text, Style::default().fg(Color::Gray)));
-        frame.render_widget(
-            Paragraph::new(eta_line),
-            Rect::new(inner.x, y, inner.width, 1),
-        );
-        y += 1;
     }
 
-    // Verify/assemble bar
-    if let Some(ref vp) = dl.verify_progress {
-        let pct = if vp.total > 0 {
-            vp.done as f64 / vp.total as f64
+    // Assemble bar: "Assembled - X/Y (Z.ZZ%)"
+    if let Some(ref ap) = dl.assemble_progress {
+        if y > inner.y {
+            y += 1;
+        }
+
+        let pct = if ap.total > 0 {
+            ap.done as f64 / ap.total as f64
         } else {
             0.0
         };
         let label = format!(
-            " {} {}/{}  {:.1}%",
-            vp.label,
-            vp.done,
-            vp.total,
+            "{} - {}/{} ({:.2}%)",
+            ap.label,
+            ap.done,
+            ap.total,
+            pct * 100.0
+        );
+        let gauge = Gauge::default()
+            .gauge_style(Style::default().fg(Color::Magenta).bg(Color::DarkGray))
+            .ratio(pct.clamp(0.0, 1.0))
+            .label(Span::styled(label, Style::default().fg(Color::White)));
+        frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
+        y += 1;
+    }
+
+    // Check/verify bar: "Checked - X/Y (Z.ZZ%)"
+    if let Some(ref cp) = dl.check_progress {
+        if y > inner.y {
+            y += 1;
+        }
+
+        let pct = if cp.total > 0 {
+            cp.done as f64 / cp.total as f64
+        } else {
+            0.0
+        };
+        let label = format!(
+            "{} - {}/{} ({:.2}%)",
+            cp.label,
+            cp.done,
+            cp.total,
             pct * 100.0
         );
         let gauge = Gauge::default()
@@ -418,6 +449,29 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             .ratio(pct.clamp(0.0, 1.0))
             .label(Span::styled(label, Style::default().fg(Color::White)));
         frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
+        y += 1;
+    }
+
+    if let Some(ref dp) = dl.download_progress {
+        let w = inner.width as usize;
+        let line = if dp.speed_bps > 0.0 {
+            let speed = format!("{}/s", format_bytes(dp.speed_bps as u64));
+            let eta = format!("ETA {}", format_eta_long(dp.eta_seconds));
+            let pad = w.saturating_sub(speed.len() + eta.len());
+            Line::from(vec![
+                Span::styled(speed, Style::default().fg(Color::Gray)),
+                Span::raw(" ".repeat(pad)),
+                Span::styled(eta, Style::default().fg(Color::Gray)),
+            ])
+        } else if dp.downloaded_bytes > 0 {
+            Line::from(Span::styled("Paused", Style::default().fg(Color::Gray)))
+        } else {
+            Line::from(Span::styled(
+                "Starting...",
+                Style::default().fg(Color::Gray),
+            ))
+        };
+        frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
     }
 }
 
@@ -618,11 +672,16 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn format_eta(seconds: f64) -> String {
+fn format_eta_long(seconds: f64) -> String {
     let s = seconds as u64;
-    if s >= 60 {
-        format!("{}m {}s", s / 60, s % 60)
+    let h = s / 3600;
+    let m = (s % 3600) / 60;
+    let sec = s % 60;
+    if h > 0 {
+        format!("{} h {} m {} s", h, m, sec)
+    } else if m > 0 {
+        format!("{} m {} s", m, sec)
     } else {
-        format!("{}s", s)
+        format!("{} s", sec)
     }
 }

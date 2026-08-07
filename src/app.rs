@@ -30,8 +30,10 @@ pub struct ActiveDownload {
     pub paused: bool,
     /// Current download phase progress (bytes).
     pub download_progress: Option<DownloadPhase>,
-    /// Current verify/assemble phase progress (files).
-    pub verify_progress: Option<VerifyPhase>,
+    /// Current assembly phase progress (files).
+    pub assemble_progress: Option<FilePhase>,
+    /// Current checking/verification phase progress (files).
+    pub check_progress: Option<FilePhase>,
     /// Short status label for misc phases (fetching manifest, installing plugins, etc.)
     pub status_label: Option<String>,
 }
@@ -44,8 +46,8 @@ pub struct DownloadPhase {
     pub eta_seconds: f64,
 }
 
-/// Verify/assemble file progress.
-pub struct VerifyPhase {
+/// File-based phase progress (assembling, verifying, checking).
+pub struct FilePhase {
     pub label: String,
     pub done: u64,
     pub total: u64,
@@ -127,7 +129,8 @@ impl App {
             handle,
             paused: false,
             download_progress: None,
-            verify_progress: None,
+            assemble_progress: None,
+            check_progress: None,
             status_label: Some("Fetching manifest...".to_owned()),
         });
     }
@@ -175,26 +178,26 @@ impl App {
                 });
                 dl.status_label = Some("Paused".to_owned());
             }
+            SophonProgress::Assembling {
+                assembled_files,
+                total_files,
+            } => {
+                dl.status_label = None;
+                dl.assemble_progress = Some(FilePhase {
+                    label: "Assembled".to_owned(),
+                    done: assembled_files,
+                    total: total_files,
+                });
+            }
             SophonProgress::Verifying {
                 scanned_files,
                 total_files,
                 ..
             } => {
                 dl.status_label = None;
-                dl.verify_progress = Some(VerifyPhase {
-                    label: "Verifying".to_owned(),
+                dl.check_progress = Some(FilePhase {
+                    label: "Verified".to_owned(),
                     done: scanned_files,
-                    total: total_files,
-                });
-            }
-            SophonProgress::Assembling {
-                assembled_files,
-                total_files,
-            } => {
-                dl.status_label = None;
-                dl.verify_progress = Some(VerifyPhase {
-                    label: "Assembling".to_owned(),
-                    done: assembled_files,
                     total: total_files,
                 });
             }
@@ -203,8 +206,8 @@ impl App {
                 total_files,
             } => {
                 dl.status_label = None;
-                dl.verify_progress = Some(VerifyPhase {
-                    label: "Checking".to_owned(),
+                dl.check_progress = Some(FilePhase {
+                    label: "Checked".to_owned(),
                     done: checked_files,
                     total: total_files,
                 });
@@ -213,15 +216,20 @@ impl App {
                 checked_files,
                 total_files,
             } => {
-                dl.status_label = Some(format!("Calculating {}/{}", checked_files, total_files));
+                dl.status_label = None;
+                dl.check_progress = Some(FilePhase {
+                    label: "Checked".to_owned(),
+                    done: checked_files,
+                    total: total_files,
+                });
             }
             SophonProgress::ApplyingPreinstall {
                 applied_files,
                 total_files,
             } => {
                 dl.status_label = None;
-                dl.verify_progress = Some(VerifyPhase {
-                    label: "Applying".to_owned(),
+                dl.assemble_progress = Some(FilePhase {
+                    label: "Applied".to_owned(),
                     done: applied_files,
                     total: total_files,
                 });
@@ -237,17 +245,12 @@ impl App {
                 downloaded_bytes,
                 total_bytes,
             } => {
-                dl.status_label = None;
+                dl.status_label = Some(format!("Plugin: {}", name));
                 dl.download_progress = Some(DownloadPhase {
                     downloaded_bytes,
                     total_bytes,
                     speed_bps: 0.0,
                     eta_seconds: 0.0,
-                });
-                dl.verify_progress = Some(VerifyPhase {
-                    label: format!("Plugin: {}", name),
-                    done: downloaded_bytes,
-                    total: total_bytes,
                 });
             }
             _ => {}
