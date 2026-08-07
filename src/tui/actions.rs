@@ -71,6 +71,30 @@ pub fn start_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
     }
 }
 
+/// Applies a previously downloaded preinstall patch.
+pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
+    let game = app.active_game;
+    let gc = app.config.game_config(game).clone();
+    if let Some(ref path) = gc.install_path {
+        let info = app.games.get(&game)
+            .and_then(|gs| gs.update_info.as_ref())
+            .and_then(|i| i.preinstall_tag.clone());
+        let Some(preinstall_tag) = info else { return };
+        let handle = DownloadHandle::new();
+        app.start_download(game, handle.clone());
+        let client = client.clone();
+        let tx = progress_tx.clone();
+        let path_str = path.to_string_lossy().to_string();
+        tokio::spawn(async move {
+            let ops = Operations::new(client);
+            let result = ops.apply_preinstall(&preinstall_tag, &path_str, &handle, tx.clone()).await;
+            if let Err(e) = result {
+                let _ = tx.send(SophonProgress::Error { message: e.to_string() }).await;
+            }
+        });
+    }
+}
+
 /// Spawns a verify integrity task for the active game.
 pub fn start_verify(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
     let game = app.active_game;

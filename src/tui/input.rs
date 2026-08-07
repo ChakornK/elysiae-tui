@@ -120,6 +120,16 @@ async fn handle_main(
                 actions::start_preinstall(app, client, progress_tx);
             }
         }
+        // Apply preinstall: when preinstall is downloaded and update is available
+        KeyCode::Char('a') => {
+            let game = app.selected_game();
+            let can_apply = app.games.get(&game)
+                .and_then(|s| s.update_info.as_ref())
+                .is_some_and(|i| i.update_available && i.preinstall_downloaded);
+            if app.download.is_none() && can_apply {
+                actions::apply_preinstall(app, client, progress_tx);
+            }
+        }
         KeyCode::Char('s') => app.current_view = View::Settings,
         _ => {}
     }
