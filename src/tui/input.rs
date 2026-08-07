@@ -75,7 +75,6 @@ async fn handle_main(
             app.prev_game();
             app.active_game = app.selected_game();
         }
-        // Number keys to switch tabs directly
         KeyCode::Char(n @ '1'..='4') => {
             let idx = (n as usize) - ('1' as usize);
             if idx < crate::game::GameId::ALL.len() {
@@ -83,7 +82,6 @@ async fn handle_main(
                 app.active_game = app.selected_game();
             }
         }
-        // Primary action (Enter)
         KeyCode::Enter => {
             let game = app.selected_game();
             let status = app.games.get(&game);
@@ -93,10 +91,8 @@ async fn handle_main(
                 .is_some_and(|i| i.update_available);
 
             if installed && !has_update {
-                // Launch is always allowed
                 actions::launch_game(app, terminal)?;
             } else if app.download.is_none() {
-                // Downloads/updates only when no active download
                 if has_update {
                     actions::start_update(app, client, progress_tx);
                 } else {
@@ -104,7 +100,26 @@ async fn handle_main(
                 }
             }
         }
-        KeyCode::Char('v') => actions::start_verify(app, client, progress_tx),
+        // Verify: only when installed and no download active
+        KeyCode::Char('v') => {
+            let game = app.selected_game();
+            let installed = app.games.get(&game)
+                .and_then(|s| s.installed_tag.as_ref())
+                .is_some();
+            if installed && app.download.is_none() {
+                actions::start_verify(app, client, progress_tx);
+            }
+        }
+        // Preinstall: only when no download active and preinstall available
+        KeyCode::Char('p') => {
+            let game = app.selected_game();
+            let has_preinstall = app.games.get(&game)
+                .and_then(|s| s.update_info.as_ref())
+                .is_some_and(|i| i.preinstall_available && !i.preinstall_downloaded);
+            if app.download.is_none() && has_preinstall {
+                actions::start_preinstall(app, client, progress_tx);
+            }
+        }
         KeyCode::Char('s') => app.current_view = View::Settings,
         _ => {}
     }
