@@ -49,14 +49,28 @@ pub fn draw(frame: &mut Frame, app: &App) {
     let outer = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Game tabs
+            Constraint::Length(4), // Game tabs (3 + 1 padding)
             Constraint::Min(0),    // Main content
-            Constraint::Length(3), // Action bar
+            Constraint::Length(4), // Action bar (3 + 1 padding)
         ])
         .split(frame.area());
 
+    // Inset the top and bottom bars for floating effect
+    let tab_area = Rect::new(
+        outer[0].x + 2,
+        outer[0].y + 1,
+        outer[0].width.saturating_sub(4),
+        outer[0].height.saturating_sub(1),
+    );
+    let bar_area = Rect::new(
+        outer[2].x + 2,
+        outer[2].y,
+        outer[2].width.saturating_sub(4),
+        outer[2].height.saturating_sub(1),
+    );
+
     // Top: game selector tabs
-    draw_game_tabs(frame, app, outer[0]);
+    draw_game_tabs(frame, app, tab_area);
 
     // Middle: main content area
     if let Some(ref msg) = app.error_message {
@@ -93,7 +107,7 @@ pub fn draw(frame: &mut Frame, app: &App) {
     }
 
     // Bottom: action bar with primary button + keybinds
-    draw_action_bar(frame, app, outer[2]);
+    draw_action_bar(frame, app, bar_area);
 }
 
 fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
