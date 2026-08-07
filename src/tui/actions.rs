@@ -160,8 +160,10 @@ pub fn prepare_and_launch(
     let client = client.clone();
 
     tokio::spawn(async move {
-        if let Err(msg) = ensure_components(&client, &data_dir, game, &tx).await {
-            let _ = tx.send(SophonProgress::Error { message: msg }).await;
+        if let Err(msg) = ensure_components(&client, &data_dir, game, &tx, &handle).await {
+            if msg != "Cancelled" {
+                let _ = tx.send(SophonProgress::Error { message: msg }).await;
+            }
             return;
         }
         let _ = tx.send(SophonProgress::Finished).await;
@@ -192,7 +194,7 @@ fn spawn_operation(
 
         // Auto-install components before any download operation
         if matches!(op, Op::Download | Op::Update | Op::Preinstall) {
-            if let Err(msg) = ensure_components(&client, &data_dir, game, &tx).await {
+            if let Err(msg) = ensure_components(&client, &data_dir, game, &tx, &handle).await {
                 let _ = tx.send(SophonProgress::Error { message: msg }).await;
                 return;
             }
@@ -212,22 +214,26 @@ fn spawn_operation(
 }
 
 /// Installs Proton (and Jadeite for HKRPG) if not already present.
-/// Reports progress via SophonProgress events through the same channel.
 async fn ensure_components(
     client: &reqwest::Client,
     data_dir: &std::path::Path,
     game: GameId,
     tx: &Sender<SophonProgress>,
+    handle: &DownloadHandle,
 ) -> Result<(), String> {
-    use crate::components::{proton_available, jadeite_available};
+    use crate::components::{jadeite_available, proton_available};
 
     if !proton_available(data_dir) {
-        install_component_with_progress(client, data_dir, "proton", "Installing Proton", tx)
+        install_component_with_progress(client, data_dir, "proton", "Installing Proton", tx, handle)
             .await?;
     }
 
+    if handle.is_cancelled() {
+        return Err("Cancelled".to_owned());
+    }
+
     if game.needs_jadeite() && !jadeite_available(data_dir) {
-        install_component_with_progress(client, data_dir, "jadeite", "Installing Jadeite", tx)
+        install_component_with_progress(client, data_dir, "jadeite", "Installing Jadeite", tx, handle)
             .await?;
     }
 
@@ -235,14 +241,15 @@ async fn ensure_components(
 }
 
 /// Installs a single component, bridging ComponentProgress to SophonProgress.
+/// Checks handle cancellation and aborts the install task if cancelled.
 async fn install_component_with_progress(
     client: &reqwest::Client,
     data_dir: &std::path::Path,
     component: &str,
     status_msg: &str,
     tx: &Sender<SophonProgress>,
+    handle: &DownloadHandle,
 ) -> Result<(), String> {
-    // Set the progress overlay header
     let _ = tx
         .send(SophonProgress::Warning {
             message: status_msg.to_owned(),
@@ -253,7 +260,7 @@ async fn install_component_with_progress(
     let (comp_tx, mut comp_rx) = tokio::sync::mpsc::channel::<ComponentProgress>(64);
 
     let comp_name = component.to_owned();
-    let install_handle = tokio::spawn(async move {
+    let install_task = tokio::spawn(async move {
         if comp_name == "proton" {
             mgr.install_proton(comp_tx).await
         } else {
@@ -261,59 +268,64 @@ async fn install_component_with_progress(
         }
     });
 
-    // Track speed for ETA calculation
     let mut last_bytes: u64 = 0;
     let mut last_time = std::time::Instant::now();
     let mut speed_bps: f64 = 0.0;
-
     let status = status_msg.to_owned();
-    while let Some(prog) = comp_rx.recv().await {
-        match prog {
-            ComponentProgress::Downloading {
-                downloaded_bytes,
-                total_bytes,
-            } => {
-                let now = std::time::Instant::now();
-                let elapsed = now.duration_since(last_time).as_secs_f64();
-                if elapsed > 0.3 {
-                    let bytes_delta = downloaded_bytes.saturating_sub(last_bytes);
-                    speed_bps = bytes_delta as f64 / elapsed;
-                    last_bytes = downloaded_bytes;
-                    last_time = now;
+    let comp_for_cleanup = component.to_owned();
+
+    loop {
+        tokio::select! {
+            msg = comp_rx.recv() => {
+                let Some(prog) = msg else { break };
+                match prog {
+                    ComponentProgress::Downloading { downloaded_bytes, total_bytes } => {
+                        let now = std::time::Instant::now();
+                        let elapsed = now.duration_since(last_time).as_secs_f64();
+                        if elapsed > 0.3 {
+                            let bytes_delta = downloaded_bytes.saturating_sub(last_bytes);
+                            speed_bps = bytes_delta as f64 / elapsed;
+                            last_bytes = downloaded_bytes;
+                            last_time = now;
+                        }
+                        let eta = if speed_bps > 0.0 && total_bytes > downloaded_bytes {
+                            (total_bytes - downloaded_bytes) as f64 / speed_bps
+                        } else {
+                            0.0
+                        };
+                        let _ = tx.send(SophonProgress::Downloading {
+                            downloaded_bytes, total_bytes, speed_bps, eta_seconds: eta,
+                        }).await;
+                    }
+                    ComponentProgress::Extracting => {
+                        let _ = tx.send(SophonProgress::InstallingPlugins {
+                            current_plugin: "Extracting...".to_owned(),
+                            total_plugins: 1,
+                        }).await;
+                    }
+                    ComponentProgress::Finished { .. } => {}
+                    ComponentProgress::Error { message } => {
+                        return Err(format!("{}: {}", status, message));
+                    }
                 }
-                let eta = if speed_bps > 0.0 && total_bytes > downloaded_bytes {
-                    (total_bytes - downloaded_bytes) as f64 / speed_bps
-                } else {
-                    0.0
-                };
-                let _ = tx
-                    .send(SophonProgress::Downloading {
-                        downloaded_bytes,
-                        total_bytes,
-                        speed_bps,
-                        eta_seconds: eta,
-                    })
-                    .await;
             }
-            ComponentProgress::Extracting => {
-                // Show 100% download bar + "Extracting..." status
-                let _ = tx
-                    .send(SophonProgress::InstallingPlugins {
-                        current_plugin: "Extracting...".to_owned(),
-                        total_plugins: 1,
-                    })
-                    .await;
-            }
-            ComponentProgress::Finished { .. } => {}
-            ComponentProgress::Error { message } => {
-                return Err(format!("{}: {}", status, message));
+            _ = handle.cancelled_future() => {
+                install_task.abort();
+                let archive = data_dir.join(format!("{}.archive", comp_for_cleanup));
+                let _ = std::fs::remove_file(&archive);
+                return Err("Cancelled".to_owned());
             }
         }
     }
 
-    match install_handle.await {
+    match install_task.await {
         Ok(Ok(_tag)) => Ok(()),
         Ok(Err(e)) => Err(format!("{}: {}", status_msg, e)),
+        Err(e) if e.is_cancelled() => {
+            let archive = data_dir.join(format!("{}.archive", component));
+            let _ = std::fs::remove_file(&archive);
+            Err("Cancelled".to_owned())
+        }
         Err(e) => Err(format!("{}: task panicked: {}", status_msg, e)),
     }
 }
