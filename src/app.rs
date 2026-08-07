@@ -140,7 +140,18 @@ impl App {
     pub fn update_progress(&mut self, progress: SophonProgress) {
         match &progress {
             SophonProgress::Finished => {
-                self.status_message = Some("Operation completed.".to_owned());
+                // Update game state to reflect installation
+                if let Some(ref dl) = self.download {
+                    let game = dl.game_id;
+                    if let Some(gs) = self.games.get_mut(&game) {
+                        gs.has_resume = false;
+                        // Re-read installed tag from disk
+                        let gc = self.config.games.get(&game);
+                        if let Some(path) = gc.and_then(|c| c.install_path.as_ref()) {
+                            gs.installed_tag = irmin::game_installer::read_installed_tag(path);
+                        }
+                    }
+                }
                 self.download = None;
                 return;
             }
