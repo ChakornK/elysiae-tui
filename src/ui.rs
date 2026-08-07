@@ -512,7 +512,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     if let Some(ref dp) = dl.download_progress {
         y += 1; // gap
         let w = inner.width as usize;
-        let line = if dp.speed_bps > 0.0 {
+        let line = if dl.paused {
+            Line::from(Span::styled("Paused", Style::default().fg(TEXT_MUTED)))
+        } else if dp.speed_bps > 0.0 {
             let speed = format!("{}/s", format_bytes(dp.speed_bps as u64));
             let eta = format!("ETA {}", format_eta_long(dp.eta_seconds));
             let pad = w.saturating_sub(speed.len() + eta.len());
@@ -521,10 +523,18 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 Span::raw(" ".repeat(pad)),
                 Span::styled(eta, Style::default().fg(TEXT_MUTED)),
             ])
-        } else if dp.downloaded_bytes > 0 {
-            Line::from(Span::styled("Paused", Style::default().fg(TEXT_MUTED)))
+        } else if dp.downloaded_bytes > 0 && dp.total_bytes > 0 {
+            let pct = dp.downloaded_bytes as f64 / dp.total_bytes as f64;
+            let remaining = dp.total_bytes - dp.downloaded_bytes;
+            Line::from(Span::styled(
+                format!("{} remaining", format_bytes(remaining)),
+                Style::default().fg(TEXT_MUTED),
+            ))
         } else {
-            Line::from(Span::styled("Starting...", Style::default().fg(TEXT_MUTED)))
+            Line::from(Span::styled(
+                "Downloading...",
+                Style::default().fg(TEXT_MUTED),
+            ))
         };
         frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
     }
