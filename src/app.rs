@@ -66,6 +66,12 @@ pub struct App {
     pub show_resume_prompt: bool,
     pub backgrounds: HashMap<GameId, QuadrantImage>,
     pub ready_to_launch: bool,
+    /// Game launch log lines (ring buffer, max 1000)
+    pub launch_log: Vec<String>,
+    /// Scroll offset for launch log display
+    pub launch_log_scroll: usize,
+    /// Whether a game is currently running
+    pub game_running: bool,
 }
 
 impl App {
@@ -84,6 +90,9 @@ impl App {
             show_resume_prompt: false,
             backgrounds: HashMap::new(),
             ready_to_launch: false,
+            launch_log: Vec::new(),
+            launch_log_scroll: 0,
+            game_running: false,
         }
     }
 

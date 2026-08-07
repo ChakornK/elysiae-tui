@@ -155,7 +155,8 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                 .join("elysiae-tui");
 
             let launcher = Launcher::new(data_dir);
-            launcher.launch(game, install_path)?;
+            let (log_tx, _log_rx) = tokio::sync::mpsc::channel(16);
+            launcher.launch(game, install_path, log_tx)?;
         }
         Commands::CheckUpdate { game } => {
             let gc = config.game_config(game).clone();

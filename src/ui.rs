@@ -98,9 +98,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
     match app.current_view {
         View::GameList | View::Settings => {
             draw_main_panel(frame, app, outer[1]);
-            // Draw progress overlay if download is active
             if app.download.is_some() {
                 draw_progress_overlay(frame, app, outer[1]);
+            } else if app.game_running && !app.launch_log.is_empty() {
+                draw_launch_log(frame, app, outer[1]);
             }
         }
     }
@@ -580,6 +581,57 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         };
         frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
     }
+}
+
+/// Renders game launch log in the bottom-left (same position as progress overlay).
+fn draw_launch_log(frame: &mut Frame, app: &App, area: Rect) {
+    let bg_img = app.backgrounds.get(&app.selected_game());
+    let visible_lines = 8u16;
+    let rows = visible_lines + 3; // header + padding
+
+    let overlay_width = PROGRESS_MAX_WIDTH.min(area.width.saturating_sub(EDGE_PAD_H * 2));
+    let overlay_rect = Rect::new(
+        area.x + EDGE_PAD_H,
+        area.bottom().saturating_sub(rows + 1),
+        overlay_width,
+        rows,
+    );
+
+    if overlay_rect.height == 0 || overlay_rect.y < area.y {
+        return;
+    }
+
+    render_container(frame, overlay_rect, bg_img);
+    let inner = shrink(overlay_rect, 2, 1);
+
+    // Header
+    let header = format!("Game Log ({} lines)", app.launch_log.len());
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            header,
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+        ))),
+        Rect::new(inner.x, inner.y, inner.width, 1),
+    );
+
+    // Log lines (scrolled)
+    let log_area = Rect::new(
+        inner.x,
+        inner.y + 2,
+        inner.width,
+        visible_lines.min(inner.height.saturating_sub(2)),
+    );
+    let start = app.launch_log_scroll;
+    let end = (start + log_area.height as usize).min(app.launch_log.len());
+    let visible_log: Vec<Line> = app.launch_log[start..end]
+        .iter()
+        .map(|l| {
+            let truncated: String = l.chars().take(log_area.width as usize).collect();
+            Line::from(Span::styled(truncated, Style::default().fg(TEXT_MUTED)))
+        })
+        .collect();
+
+    frame.render_widget(Paragraph::new(visible_log), log_area);
 }
 
 fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {

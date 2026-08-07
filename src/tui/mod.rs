@@ -37,6 +37,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut app = App::new(config);
     let client = reqwest::Client::new();
     let (progress_tx, mut progress_rx) = mpsc::channel::<SophonProgress>(128);
+    let (log_tx, mut log_rx) = mpsc::channel::<String>(256);
     let mut term_size = crossterm::terminal::size().unwrap_or((80, 24));
 
     // Load installed tags and resume state
@@ -228,10 +229,23 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             app.update_progress(progress);
         }
 
+        // Receive game launch log lines
+        while let Ok(line) = log_rx.try_recv() {
+            app.launch_log.push(line);
+            if app.launch_log.len() > 1000 {
+                app.launch_log.remove(0);
+            }
+            // Auto-scroll to bottom
+            let visible = 8usize;
+            if app.launch_log.len() > visible {
+                app.launch_log_scroll = app.launch_log.len() - visible;
+            }
+        }
+
         // Launch game when components are ready
         if app.ready_to_launch {
             app.ready_to_launch = false;
-            if let Err(e) = actions::launch_game(&mut app, &mut terminal) {
+            if let Err(e) = actions::launch_game(&mut app, &mut terminal, &log_tx) {
                 app.error_message = Some(format!("Launch failed: {e}"));
             }
         }

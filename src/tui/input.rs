@@ -59,6 +59,16 @@ async fn handle_main(
 
     match key {
         KeyCode::Char('q') => app.should_quit = true,
+        // Scroll launch log
+        KeyCode::Up if app.game_running && !app.launch_log.is_empty() => {
+            app.launch_log_scroll = app.launch_log_scroll.saturating_sub(1);
+        }
+        KeyCode::Down if app.game_running && !app.launch_log.is_empty() => {
+            let max_scroll = app.launch_log.len().saturating_sub(8);
+            if app.launch_log_scroll < max_scroll {
+                app.launch_log_scroll += 1;
+            }
+        }
         KeyCode::Left => {
             app.prev_game();
             app.active_game = app.selected_game();

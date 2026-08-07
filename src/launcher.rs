@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+
+use tokio::sync::mpsc::Sender;
 
 use crate::game::GameId;
 
@@ -25,9 +26,14 @@ impl Launcher {
         Self { data_dir }
     }
 
-    /// Launches the game. Blocks until the child process exits.
-    /// Launches the game via Proton in the background. Does not block.
-    pub fn launch(&self, game: GameId, game_dir: &Path) -> Result<(), LaunchError> {
+    /// Launches the game via Proton in the background.
+    /// Streams stdout/stderr lines to `log_tx` for TUI display.
+    pub fn launch(
+        &self,
+        game: GameId,
+        game_dir: &Path,
+        log_tx: Sender<String>,
+    ) -> Result<(), LaunchError> {
         let proton_bin = self.data_dir.join("proton").join("proton");
         if !proton_bin.exists() {
             return Err(LaunchError::ProtonMissing(proton_bin));
@@ -55,15 +61,57 @@ impl Launcher {
             format!("{} run {}", proton_bin.display(), exe_path.display())
         };
 
-        Command::new("sh")
-            .arg("-c")
-            .arg(&command_str)
-            .env("STEAM_COMPAT_DATA_PATH", &compat_data)
-            .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(LaunchError::Spawn)?;
+        let compat_str = compat_data.to_string_lossy().to_string();
+
+        tokio::spawn(async move {
+            use tokio::io::{AsyncBufReadExt, BufReader};
+            use tokio::process::Command;
+
+            let mut child = match Command::new("sh")
+                .arg("-c")
+                .arg(&command_str)
+                .env("STEAM_COMPAT_DATA_PATH", &compat_str)
+                .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(c) => c,
+                Err(_) => return,
+            };
+
+            let mut handles = Vec::new();
+
+            if let Some(stdout) = child.stdout.take() {
+                let tx = log_tx.clone();
+                handles.push(tokio::spawn(async move {
+                    let mut lines = BufReader::new(stdout).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        if tx.send(line).await.is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+
+            if let Some(stderr) = child.stderr.take() {
+                let tx = log_tx.clone();
+                handles.push(tokio::spawn(async move {
+                    let mut lines = BufReader::new(stderr).lines();
+                    while let Ok(Some(line)) = lines.next_line().await {
+                        if tx.send(line).await.is_err() {
+                            break;
+                        }
+                    }
+                }));
+            }
+
+            // Wait for readers to finish
+            for h in handles {
+                let _ = h.await;
+            }
+            let _ = child.wait().await;
+        });
 
         Ok(())
     }

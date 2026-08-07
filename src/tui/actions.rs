@@ -118,6 +118,7 @@ pub fn resume_download(app: &mut App, client: &reqwest::Client, progress_tx: &Se
 pub fn launch_game(
     app: &mut App,
     _terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    log_tx: &tokio::sync::mpsc::Sender<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let game = app.active_game;
     let gc = app.config.game_config(game).clone();
@@ -131,7 +132,12 @@ pub fn launch_game(
         .join("elysiae-tui");
     let launcher = crate::launcher::Launcher::new(data_dir);
 
-    if let Err(e) = launcher.launch(game, path) {
+    app.launch_log.clear();
+    app.launch_log_scroll = 0;
+    app.game_running = true;
+
+    if let Err(e) = launcher.launch(game, path, log_tx.clone()) {
+        app.game_running = false;
         app.error_message = Some(format!("Launch failed: {e}"));
     }
 
