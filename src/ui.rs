@@ -534,7 +534,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 
     // Left island: keybinds
     let keys = if app.download.is_some() {
-        "[q] quit  [p] pause  [r] resume  [c] cancel  [←/→] switch game"
+        "[q] quit  [p] pause/resume  [c] cancel  [←/→] switch game"
     } else {
         match app.current_view {
             View::GameList | View::GameDetail | View::Downloading => {

@@ -39,15 +39,13 @@ async fn handle_main(
         match key {
             KeyCode::Char('p') => {
                 if let Some(ref mut dl) = app.download {
-                    dl.handle.pause();
-                    dl.paused = true;
-                }
-                return Ok(());
-            }
-            KeyCode::Char('r') => {
-                if let Some(ref mut dl) = app.download {
-                    dl.handle.resume();
-                    dl.paused = false;
+                    if dl.paused {
+                        dl.handle.resume();
+                        dl.paused = false;
+                    } else {
+                        dl.handle.pause();
+                        dl.paused = true;
+                    }
                 }
                 return Ok(());
             }
