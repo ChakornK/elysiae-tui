@@ -352,40 +352,28 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     let game = dl.game_id;
 
     // Calculate how many rows we need
-    let mut rows: u16 = 0;
+    let mut rows: u16 = 1; // "Installing <game>" header
     if dl.status_label.is_some() {
         rows += 1;
     }
     if dl.download_progress.is_some() {
-        if rows > 0 {
-            rows += 1;
-        }
-        rows += 1;
+        rows += 2; // gap + bar
     }
     if dl.assemble_progress.is_some() {
-        if rows > 0 {
-            rows += 1;
-        }
-        rows += 1;
+        rows += 2; // gap + bar
     }
     if dl.check_progress.is_some() {
-        if rows > 0 {
-            rows += 1;
-        }
-        rows += 1;
+        rows += 2; // gap + bar
     }
-    // Speed/ETA always at bottom when downloading
+    // Speed/ETA at bottom with gap
     if dl.download_progress.is_some() {
-        rows += 1;
-    }
-    if rows == 0 {
-        return;
+        rows += 2; // gap + line
     }
     rows += 2; // vertical padding
 
     let overlay_width = 55u16.min(area.width.saturating_sub(2));
     let overlay_rect = Rect::new(
-        area.x + 1,
+        area.x + 2,
         area.bottom().saturating_sub(rows + 1),
         overlay_width,
         rows,
@@ -399,6 +387,17 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     let inner = shrink(overlay_rect, 2, 1);
     let mut y = inner.y;
 
+    // Header: "Installing <game name>"
+    let header_text = format!("Installing {}", game.display_name());
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            header_text,
+            Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+        ))),
+        Rect::new(inner.x, y, inner.width, 1),
+    );
+    y += 1;
+
     // Status label (fetching manifest, plugins, etc.)
     if let Some(ref label) = dl.status_label {
         let line = Line::from(Span::styled(
@@ -409,11 +408,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         y += 1;
     }
 
-    // Download bar: "Downloading - X.XX GB/Y.YY GB (Z.ZZ%)"
+    // Download bar
     if let Some(ref dp) = dl.download_progress {
-        if y > inner.y {
-            y += 1;
-        }
+        y += 1; // gap
 
         let pct = if dp.total_bytes > 0 {
             dp.downloaded_bytes as f64 / dp.total_bytes as f64
@@ -434,11 +431,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         y += 1;
     }
 
-    // Assemble bar: "Assembled - X/Y (Z.ZZ%)"
+    // Assemble bar
     if let Some(ref ap) = dl.assemble_progress {
-        if y > inner.y {
-            y += 1;
-        }
+        y += 1; // gap
 
         let pct = if ap.total > 0 {
             ap.done as f64 / ap.total as f64
@@ -460,11 +455,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         y += 1;
     }
 
-    // Check/verify bar: "Checked - X/Y (Z.ZZ%)"
+    // Check/verify bar
     if let Some(ref cp) = dl.check_progress {
-        if y > inner.y {
-            y += 1;
-        }
+        y += 1; // gap
 
         let pct = if cp.total > 0 {
             cp.done as f64 / cp.total as f64
@@ -486,7 +479,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         y += 1;
     }
 
+    // Speed/ETA at bottom with gap
     if let Some(ref dp) = dl.download_progress {
+        y += 1; // gap
         let w = inner.width as usize;
         let line = if dp.speed_bps > 0.0 {
             let speed = format!("{}/s", format_bytes(dp.speed_bps as u64));
