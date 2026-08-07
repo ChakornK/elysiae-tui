@@ -21,6 +21,7 @@ pub enum View {
 pub struct GameStatus {
     pub installed_tag: Option<String>,
     pub update_info: Option<UpdateInfo>,
+    pub has_resume: bool,
 }
 
 /// Tracks an in-flight download operation with per-phase progress.

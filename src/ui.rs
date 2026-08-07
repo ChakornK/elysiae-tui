@@ -589,18 +589,17 @@ fn primary_button(app: &App) -> (&'static str, Color, char) {
         View::Settings => ("Settings", ACCENT, 's'),
         _ => {
             let game = app.selected_game();
-            let installed = app
-                .games
-                .get(&game)
-                .and_then(|s| s.installed_tag.as_ref())
-                .is_some();
-            let has_update = app
-                .games
-                .get(&game)
+            let status = app.games.get(&game);
+            let installed = status.and_then(|s| s.installed_tag.as_ref()).is_some();
+            let has_update = status
                 .and_then(|s| s.update_info.as_ref())
                 .is_some_and(|i| i.update_available);
+            let has_resume = status.is_some_and(|s| s.has_resume);
+
             if has_update {
                 ("Update", SUCCESS, 'u')
+            } else if has_resume {
+                ("Resume", WARNING, 'd')
             } else if installed {
                 ("Launch", ACCENT, 'l')
             } else {

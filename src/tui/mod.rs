@@ -34,14 +34,16 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let (progress_tx, mut progress_rx) = mpsc::channel::<SophonProgress>(128);
     let mut term_size = crossterm::terminal::size().unwrap_or((80, 24));
 
-    // Load installed tags
+    // Load installed tags and resume state
     for game in GameId::ALL {
         let gc = app.config.game_config(game).clone();
         if let Some(ref path) = gc.install_path {
             let tag = irmin::game_installer::read_installed_tag(path);
+            let has_resume = irmin::sophon_has_resume_state(&path.to_string_lossy());
             app.games.insert(game, crate::app::GameStatus {
                 installed_tag: tag,
                 update_info: None,
+                has_resume,
             });
         }
     }
