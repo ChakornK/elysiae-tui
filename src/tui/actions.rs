@@ -135,28 +135,33 @@ pub fn launch_game(
     Ok(())
 }
 
-/// Spawns a component install (proton or jadeite) and updates config on completion.
+/// Spawns a component install (proton or jadeite). Reports errors via the progress channel.
 pub fn install_component(
     _app: &mut App,
     client: &reqwest::Client,
     component: &str,
+    progress_tx: &Sender<SophonProgress>,
 ) {
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
         .join("elysiae-tui");
     let mgr = ComponentManager::new(client.clone(), data_dir);
     let component = component.to_owned();
+    let tx = progress_tx.clone();
 
     tokio::spawn(async move {
-        let (tx, mut _rx) = tokio::sync::mpsc::channel::<ComponentProgress>(32);
+        let (comp_tx, mut _rx) = tokio::sync::mpsc::channel::<ComponentProgress>(32);
         let result = if component == "proton" {
-            mgr.install_proton(tx).await
+            mgr.install_proton(comp_tx).await
         } else {
-            mgr.install_jadeite(tx).await
+            mgr.install_jadeite(comp_tx).await
         };
-        match result {
-            Ok(_tag) => {}
-            Err(_e) => {}
+        if let Err(e) = result {
+            let _ = tx
+                .send(SophonProgress::Error {
+                    message: format!("{} install failed: {}", component, e),
+                })
+                .await;
         }
     });
 }
