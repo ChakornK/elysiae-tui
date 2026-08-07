@@ -96,6 +96,15 @@ impl ComponentManager {
         }
         drop(file);
 
+        // Verify download completed fully — partial files cause corrupt extraction
+        if total > 0 && downloaded != total {
+            let _ = std::fs::remove_file(&archive_path);
+            return Err(ComponentError::Other(format!(
+                "{} download incomplete: got {} of {} bytes",
+                name, downloaded, total
+            )));
+        }
+
         // Flush channel before sending extracting state
         let _ = tx.send(ComponentProgress::Extracting).await;
 
