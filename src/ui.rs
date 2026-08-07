@@ -24,6 +24,7 @@ mod palette {
     pub const BAR_BG: Color = Color::Rgb(50, 50, 65);
     pub const BLACK: Color = Color::Rgb(10, 10, 15);
     pub const CONTAINER_BG: Color = Color::Rgb(26, 26, 26);
+    pub const SECONDARY_BG: Color = Color::Rgb(18, 18, 18);
 
     // Per-game brand colors
     pub const GAME_BH3: Color = Color::Rgb(240, 120, 120);
@@ -602,6 +603,46 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         ))),
         keys_inner,
     );
+
+    // Check if preinstall button should show
+    let has_preinstall = app
+        .games
+        .get(&app.selected_game())
+        .and_then(|s| s.update_info.as_ref())
+        .is_some_and(|i| i.preinstall_available && !i.preinstall_downloaded);
+
+    // Preinstall button (secondary, to the left of primary with 2 col gap)
+    if has_preinstall && app.download.is_none() {
+        let pre_label = "[p] Preinstall";
+        let pre_content_w = pre_label.len() as u16;
+        let pre_island_w = pre_content_w + 4;
+        let pre_rect = Rect::new(
+            btn_rect.x.saturating_sub(pre_island_w + 2),
+            area.y,
+            pre_island_w.min(area.width),
+            btn_island_h.min(area.height),
+        );
+        let buf = frame.buffer_mut();
+        for cy in pre_rect.y..pre_rect.bottom() {
+            for cx in pre_rect.x..pre_rect.right() {
+                let cell = &mut buf[(cx, cy)];
+                cell.set_char(' ');
+                cell.set_bg(SECONDARY_BG);
+                cell.set_fg(Color::Reset);
+            }
+        }
+        let pre_inner = shrink(pre_rect, 2, 1);
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                pre_label,
+                Style::default()
+                    .fg(WARNING)
+                    .bg(SECONDARY_BG)
+                    .add_modifier(Modifier::BOLD),
+            ))),
+            pre_inner,
+        );
+    }
 
     // Render right button (solid color, no container)
     let buf = frame.buffer_mut();
