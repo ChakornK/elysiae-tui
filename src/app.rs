@@ -157,7 +157,16 @@ impl App {
                 speed_bps,
                 eta_seconds,
             } => {
+                // Discard stale events (progress going backwards = from a cancelled task)
+                if let Some(ref existing) = dl.download_progress {
+                    if downloaded_bytes < existing.downloaded_bytes
+                        && total_bytes == existing.total_bytes
+                    {
+                        return;
+                    }
+                }
                 dl.status_label = None;
+                dl.header_override = None;
                 dl.download_progress = Some(DownloadPhase {
                     downloaded_bytes,
                     total_bytes,
@@ -259,15 +268,16 @@ impl App {
         }
     }
 
-    /// Clears the active download.
     /// Cancels the active download. Marks the game as partially downloaded.
     pub fn finish_download(&mut self) {
         if let Some(ref dl) = self.download {
+            dl.handle.cancel();
             if let Some(gs) = self.games.get_mut(&dl.game_id) {
                 gs.has_resume = true;
             }
         }
         self.download = None;
+        self.ready_to_launch = false;
     }
 
     /// Dismisses the current error message.
