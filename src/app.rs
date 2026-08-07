@@ -249,7 +249,13 @@ impl App {
     }
 
     /// Clears the active download.
+    /// Cancels the active download. Marks the game as partially downloaded.
     pub fn finish_download(&mut self) {
+        if let Some(ref dl) = self.download {
+            if let Some(gs) = self.games.get_mut(&dl.game_id) {
+                gs.has_resume = true;
+            }
+        }
         self.download = None;
     }
 
