@@ -166,7 +166,6 @@ impl App {
                     }
                 }
                 dl.status_label = None;
-                dl.header_override = None;
                 dl.download_progress = Some(DownloadPhase {
                     downloaded_bytes,
                     total_bytes,
@@ -242,6 +241,7 @@ impl App {
                 });
             }
             SophonProgress::FetchingManifest => {
+                dl.header_override = None;
                 dl.status_label = Some("Fetching manifest...".to_owned());
             }
             SophonProgress::InstallingPlugins { current_plugin, .. } => {
