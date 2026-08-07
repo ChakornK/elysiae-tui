@@ -13,6 +13,16 @@ pub struct Config {
     pub selected_game: GameId,
     pub games: HashMap<GameId, GameConfig>,
     pub installed_components: ComponentVersions,
+    /// Automatically download game updates on startup.
+    #[serde(default = "default_true")]
+    pub auto_update: bool,
+    /// Automatically download preinstall patches on startup.
+    #[serde(default = "default_true")]
+    pub auto_preload: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Per-game settings.
@@ -78,6 +88,8 @@ impl Default for Config {
                 proton: None,
                 jadeite: None,
             },
+            auto_update: true,
+            auto_preload: true,
         }
     }
 }
@@ -144,6 +156,8 @@ mod tests {
                 selected_game: selected,
                 games,
                 installed_components: ComponentVersions { proton, jadeite },
+                auto_update: true,
+                auto_preload: true,
             })
     }
 

@@ -120,9 +120,29 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
         // Receive background update check results
         if let Ok(updates) = update_rx.try_recv() {
-            for (game, info) in updates {
-                if let Some(gs) = app.games.get_mut(&game) {
-                    gs.update_info = Some(info);
+            for (game, info) in &updates {
+                if let Some(gs) = app.games.get_mut(game) {
+                    gs.update_info = Some(info.clone());
+                }
+            }
+            // Auto-update/preinstall the first eligible game (one at a time)
+            if app.download.is_none() {
+                for (game, info) in &updates {
+                    if info.update_available && app.config.auto_update {
+                        let gc = app.config.game_config(*game).clone();
+                        if gc.install_path.is_some() {
+                            app.active_game = *game;
+                            actions::start_update(&mut app, &client, &progress_tx);
+                            break;
+                        }
+                    } else if info.preinstall_available && app.config.auto_preload {
+                        let gc = app.config.game_config(*game).clone();
+                        if gc.install_path.is_some() {
+                            app.active_game = *game;
+                            actions::start_preinstall(&mut app, &client, &progress_tx);
+                            break;
+                        }
+                    }
                 }
             }
             let (_tx, rx) = oneshot::channel();
