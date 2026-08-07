@@ -1,8 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Gauge, Padding, Paragraph, Tabs};
+use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, View};
@@ -24,7 +23,7 @@ mod palette {
     pub const MAGENTA: Color = Color::Rgb(200, 140, 220);
     pub const BAR_BG: Color = Color::Rgb(50, 50, 65);
     pub const BLACK: Color = Color::Rgb(10, 10, 15);
-    pub const CONTAINER_BG: Color = Color::Rgb(37, 37, 37);
+    pub const CONTAINER_BG: Color = Color::Rgb(26, 26, 26);
 
     // Per-game brand colors
     pub const GAME_BH3: Color = Color::Rgb(240, 120, 120);
@@ -38,13 +37,8 @@ use palette::*;
 /// Renders the full TUI frame based on current application state.
 pub fn draw(frame: &mut Frame, app: &App) {
     // Render background image across the full terminal area
-    if matches!(
-        app.current_view,
-        View::GameList | View::GameDetail | View::Downloading
-    ) {
-        if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
-            frame.render_widget(bg, frame.area());
-        }
+    if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
+        frame.render_widget(bg, frame.area());
     }
 
     let outer = Layout::default()
@@ -96,19 +90,45 @@ pub fn draw(frame: &mut Frame, app: &App) {
         frame.render_widget(status, outer[1]);
     } else {
         match app.current_view {
-            View::GameList | View::GameDetail | View::Downloading => {
+            View::GameList | View::GameDetail | View::Downloading | View::Settings => {
                 draw_main_panel(frame, app, outer[1]);
                 // Draw progress overlay if download is active
                 if app.download.is_some() {
                     draw_progress_overlay(frame, app, outer[1]);
                 }
             }
-            View::Settings => draw_settings(frame, app, outer[1]),
         }
     }
 
     // Bottom: action bar with primary button + keybinds
     draw_action_bar(frame, app, bar_area);
+
+    // Settings overlay on top of everything
+    if app.current_view == View::Settings {
+        // Darken entire window
+        let full = frame.area();
+        let buf = frame.buffer_mut();
+        for cy in full.y..full.bottom() {
+            for cx in full.x..full.right() {
+                let cell = &mut buf[(cx, cy)];
+                if let Color::Rgb(r, g, b) = cell.bg {
+                    cell.set_bg(Color::Rgb(
+                        ((r as u16 * 3 + 26 * 7) / 10) as u8,
+                        ((g as u16 * 3 + 26 * 7) / 10) as u8,
+                        ((b as u16 * 3 + 26 * 7) / 10) as u8,
+                    ));
+                }
+                if let Color::Rgb(r, g, b) = cell.fg {
+                    cell.set_fg(Color::Rgb(
+                        ((r as u16 * 3 + 26 * 7) / 10) as u8,
+                        ((g as u16 * 3 + 26 * 7) / 10) as u8,
+                        ((b as u16 * 3 + 26 * 7) / 10) as u8,
+                    ));
+                }
+            }
+        }
+        draw_settings(frame, app, outer[1]);
+    }
 }
 
 fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
@@ -251,14 +271,22 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     }
 }
 
-/// Renders a dark gray container over the background image.
+/// Renders a container with #1a1a1a at 70% opacity over the existing buffer content.
 fn render_container(frame: &mut Frame, area: Rect, _bg_img: Option<&QuadrantImage>) {
     let buf = frame.buffer_mut();
     for cy in area.y..area.bottom() {
         for cx in area.x..area.right() {
             let cell = &mut buf[(cx, cy)];
+            if let Color::Rgb(r, g, b) = cell.bg {
+                cell.set_bg(Color::Rgb(
+                    ((r as u16 * 3 + 26 * 7) / 10) as u8,
+                    ((g as u16 * 3 + 26 * 7) / 10) as u8,
+                    ((b as u16 * 3 + 26 * 7) / 10) as u8,
+                ));
+            } else {
+                cell.set_bg(CONTAINER_BG);
+            }
             cell.set_char(' ');
-            cell.set_bg(CONTAINER_BG);
             cell.set_fg(Color::Reset);
         }
     }
@@ -436,16 +464,20 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
-    frame.render_widget(Clear, area);
+    let bg_img = app.backgrounds.get(&app.selected_game());
 
-    let panel_block = Block::default()
-        .borders(Borders::ALL)
-        .border_set(border::ROUNDED)
-        .border_style(Style::default().fg(BORDER))
-        .style(Style::default().bg(PANEL_BG))
-        .padding(Padding::new(2, 2, 1, 1));
-    let content_area = panel_block.inner(area);
-    frame.render_widget(panel_block, area);
+    // Center the overlay box
+    let overlay_w = 60u16.min(area.width.saturating_sub(4));
+    let overlay_h = 16u16.min(area.height.saturating_sub(2));
+    let overlay_rect = Rect::new(
+        area.x + (area.width.saturating_sub(overlay_w)) / 2,
+        area.y + (area.height.saturating_sub(overlay_h)) / 2,
+        overlay_w,
+        overlay_h,
+    );
+
+    render_container(frame, overlay_rect, bg_img);
+    let inner = shrink(overlay_rect, 2, 1);
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -453,17 +485,17 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             Constraint::Length(2), // Section header
             Constraint::Min(0),    // Content
         ])
-        .split(content_area);
+        .split(inner);
 
     let header = Paragraph::new(Line::from(Span::styled(
-        "  Settings",
+        "Settings",
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
     )));
     frame.render_widget(header, layout[0]);
 
     let mut lines: Vec<Line> = Vec::new();
 
-    lines.push(Line::styled("  Games", Style::default().fg(TEXT_MUTED)));
+    lines.push(Line::styled("Games", Style::default().fg(TEXT_MUTED)));
     lines.push(Line::from(""));
 
     for game in GameId::ALL {
@@ -475,7 +507,7 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             .unwrap_or_else(|| "not set".to_owned());
         lines.push(Line::from(vec![
             Span::styled(
-                format!("  {:<6}", game.display_name()),
+                format!("{:<6}", game.display_name()),
                 Style::default().fg(game_color(game)),
             ),
             Span::styled(format!("lang: {:<6}", vo), Style::default().fg(TEXT_MUTED)),
@@ -484,10 +516,7 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::styled(
-        "  Components",
-        Style::default().fg(TEXT_MUTED),
-    ));
+    lines.push(Line::styled("Components", Style::default().fg(TEXT_MUTED)));
     lines.push(Line::from(""));
 
     let proton = app
@@ -503,11 +532,11 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         .as_deref()
         .unwrap_or("not installed");
     lines.push(Line::from(vec![
-        Span::styled("  [1] Proton   ", Style::default().fg(SUCCESS)),
+        Span::styled("[1] Proton   ", Style::default().fg(SUCCESS)),
         Span::styled(proton, Style::default().fg(TEXT_MUTED)),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("  [2] Jadeite  ", Style::default().fg(MAGENTA)),
+        Span::styled("[2] Jadeite  ", Style::default().fg(MAGENTA)),
         Span::styled(jadeite, Style::default().fg(TEXT_MUTED)),
     ]));
 
@@ -637,10 +666,8 @@ fn format_eta_long(seconds: f64) -> String {
     let m = (s % 3600) / 60;
     let sec = s % 60;
     if h > 0 {
-        format!("{} h {} m {} s", h, m, sec)
-    } else if m > 0 {
-        format!("{} m {} s", m, sec)
+        format!("{}:{:02}:{:02}", h, m, sec)
     } else {
-        format!("{} s", sec)
+        format!("{}:{:02}", m, sec)
     }
 }
