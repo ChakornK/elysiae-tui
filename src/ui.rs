@@ -15,8 +15,7 @@ mod palette {
 
     pub const PANEL_BG: Color = Color::Rgb(15, 15, 22);
     pub const TEXT: Color = Color::Rgb(220, 220, 230);
-    pub const TEXT_DIM: Color = Color::Rgb(140, 140, 160);
-    pub const TEXT_MUTED: Color = Color::Rgb(90, 90, 110);
+    pub const TEXT_MUTED: Color = Color::Rgb(170, 170, 170);
     pub const BORDER: Color = Color::Rgb(70, 70, 90);
     pub const ERROR: Color = Color::Rgb(240, 80, 80);
     pub const WARNING: Color = Color::Rgb(240, 200, 60);
@@ -159,7 +158,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                             info.remote_tag,
                             format_bytes(info.update_compressed_size)
                         ),
-                        Style::default().fg(TEXT_DIM),
+                        Style::default().fg(TEXT_MUTED),
                     ),
                 ]));
             }
@@ -172,7 +171,10 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                 };
                 info_lines.push(Line::from(vec![
                     Span::styled(" Preinstall  ", Style::default().fg(MAGENTA)),
-                    Span::styled(format!("{}{}", tag, suffix), Style::default().fg(TEXT_DIM)),
+                    Span::styled(
+                        format!("{}{}", tag, suffix),
+                        Style::default().fg(TEXT_MUTED),
+                    ),
                 ]));
             }
         }
@@ -240,7 +242,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                         .map(|t| format!("v{}", t))
                         .unwrap_or_else(|| "Not installed".to_owned())
                 ),
-                Style::default().fg(TEXT_DIM),
+                Style::default().fg(TEXT_MUTED),
             )),
         ];
         frame.render_widget(Paragraph::new(header_lines), inner);
@@ -380,7 +382,10 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
 
     // Status label (fetching manifest, plugins, etc.)
     if let Some(ref label) = dl.status_label {
-        let line = Line::from(Span::styled(label.as_str(), Style::default().fg(TEXT_DIM)));
+        let line = Line::from(Span::styled(
+            label.as_str(),
+            Style::default().fg(TEXT_MUTED),
+        ));
         frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
         y += 1;
     }
@@ -469,14 +474,14 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             let eta = format!("ETA {}", format_eta_long(dp.eta_seconds));
             let pad = w.saturating_sub(speed.len() + eta.len());
             Line::from(vec![
-                Span::styled(speed, Style::default().fg(TEXT_DIM)),
+                Span::styled(speed, Style::default().fg(TEXT_MUTED)),
                 Span::raw(" ".repeat(pad)),
-                Span::styled(eta, Style::default().fg(TEXT_DIM)),
+                Span::styled(eta, Style::default().fg(TEXT_MUTED)),
             ])
         } else if dp.downloaded_bytes > 0 {
-            Line::from(Span::styled("Paused", Style::default().fg(TEXT_DIM)))
+            Line::from(Span::styled("Paused", Style::default().fg(TEXT_MUTED)))
         } else {
-            Line::from(Span::styled("Starting...", Style::default().fg(TEXT_DIM)))
+            Line::from(Span::styled("Starting...", Style::default().fg(TEXT_MUTED)))
         };
         frame.render_widget(Paragraph::new(line), Rect::new(inner.x, y, inner.width, 1));
     }
@@ -525,7 +530,7 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
                 format!("  {:<6}", game.display_name()),
                 Style::default().fg(game_color(game)),
             ),
-            Span::styled(format!("lang: {:<6}", vo), Style::default().fg(TEXT_DIM)),
+            Span::styled(format!("lang: {:<6}", vo), Style::default().fg(TEXT_MUTED)),
             Span::styled(format!("path: {}", path), Style::default().fg(TEXT_MUTED)),
         ]));
     }
@@ -551,11 +556,11 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         .unwrap_or("not installed");
     lines.push(Line::from(vec![
         Span::styled("  [1] Proton   ", Style::default().fg(SUCCESS)),
-        Span::styled(proton, Style::default().fg(TEXT_DIM)),
+        Span::styled(proton, Style::default().fg(TEXT_MUTED)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [2] Jadeite  ", Style::default().fg(MAGENTA)),
-        Span::styled(jadeite, Style::default().fg(TEXT_DIM)),
+        Span::styled(jadeite, Style::default().fg(TEXT_MUTED)),
     ]));
 
     let content = Paragraph::new(lines);
