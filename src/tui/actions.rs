@@ -2,7 +2,9 @@ use std::io;
 use std::path::PathBuf;
 
 use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
+use crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 use irmin::{DownloadHandle, SophonProgress};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -177,17 +179,118 @@ fn spawn_operation(
 ) {
     let client = client.clone();
     tokio::spawn(async move {
+        let data_dir = dirs::data_dir()
+            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+            .join("elysiae-tui");
+
+        // Auto-install components before download/update operations
+        if matches!(op, Op::Download | Op::Update) {
+            if let Err(msg) = ensure_components(&client, &data_dir, game, &tx).await {
+                let _ = tx.send(SophonProgress::Error { message: msg }).await;
+                return;
+            }
+        }
+
         let ops = Operations::new(client);
         let result = match op {
-            Op::Download => ops.download(game, &vo_lang, &path, &handle, tx).await,
-            Op::Update => ops.update(game, &vo_lang, &path, &handle, tx).await,
-            Op::Preinstall => ops.preinstall(game, &vo_lang, &path, &handle, tx).await,
-            Op::Verify => ops.verify(game, &vo_lang, &path, tx).await,
+            Op::Download => ops.download(game, &vo_lang, &path, &handle, tx.clone()).await,
+            Op::Update => ops.update(game, &vo_lang, &path, &handle, tx.clone()).await,
+            Op::Preinstall => ops.preinstall(game, &vo_lang, &path, &handle, tx.clone()).await,
+            Op::Verify => ops.verify(game, &vo_lang, &path, tx.clone()).await,
         };
-        if let Err(_e) = result {
-            // Error is reported via progress channel
+        if let Err(e) = result {
+            let _ = tx.send(SophonProgress::Error { message: e.to_string() }).await;
         }
     });
+}
+
+/// Installs Proton (and Jadeite for HKRPG) if not already present.
+/// Reports progress via SophonProgress events through the same channel.
+async fn ensure_components(
+    client: &reqwest::Client,
+    data_dir: &std::path::Path,
+    game: GameId,
+    tx: &Sender<SophonProgress>,
+) -> Result<(), String> {
+    let proton_ok = data_dir.join("proton").exists() && data_dir.join("proton-data").exists();
+    let jadeite_ok = data_dir.join("jadeite").exists();
+
+    if !proton_ok {
+        install_component_with_progress(client, data_dir, "proton", "Installing Proton", tx)
+            .await?;
+    }
+
+    if game.needs_jadeite() && !jadeite_ok {
+        install_component_with_progress(client, data_dir, "jadeite", "Installing Jadeite", tx)
+            .await?;
+    }
+
+    Ok(())
+}
+
+/// Installs a single component, bridging ComponentProgress to SophonProgress.
+async fn install_component_with_progress(
+    client: &reqwest::Client,
+    data_dir: &std::path::Path,
+    component: &str,
+    status_msg: &str,
+    tx: &Sender<SophonProgress>,
+) -> Result<(), String> {
+    let _ = tx
+        .send(SophonProgress::FetchingManifest)
+        .await;
+
+    let mgr = ComponentManager::new(client.clone(), data_dir.to_path_buf());
+    let (comp_tx, mut comp_rx) = tokio::sync::mpsc::channel::<ComponentProgress>(64);
+
+    let comp_name = component.to_owned();
+    let install_handle = tokio::spawn(async move {
+        if comp_name == "proton" {
+            mgr.install_proton(comp_tx).await
+        } else {
+            mgr.install_jadeite(comp_tx).await
+        }
+    });
+
+    // Bridge component progress to sophon progress for the overlay
+    let status = status_msg.to_owned();
+    while let Some(prog) = comp_rx.recv().await {
+        match prog {
+            ComponentProgress::Downloading {
+                downloaded_bytes,
+                total_bytes,
+            } => {
+                let _ = tx
+                    .send(SophonProgress::Downloading {
+                        downloaded_bytes,
+                        total_bytes,
+                        speed_bps: 0.0,
+                        eta_seconds: 0.0,
+                    })
+                    .await;
+            }
+            ComponentProgress::Extracting => {
+                let _ = tx
+                    .send(SophonProgress::Downloading {
+                        downloaded_bytes: 0,
+                        total_bytes: 0,
+                        speed_bps: 0.0,
+                        eta_seconds: 0.0,
+                    })
+                    .await;
+            }
+            ComponentProgress::Finished { .. } => {}
+            ComponentProgress::Error { message } => {
+                return Err(format!("{}: {}", status, message));
+            }
+        }
+    }
+
+    match install_handle.await {
+        Ok(Ok(_tag)) => Ok(()),
+        Ok(Err(e)) => Err(format!("{}: {}", status_msg, e)),
+        Err(e) => Err(format!("{}: task panicked: {}", status_msg, e)),
+    }
 }
 
 fn default_install_path(game: GameId) -> PathBuf {

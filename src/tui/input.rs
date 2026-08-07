@@ -133,11 +133,9 @@ fn handle_settings(app: &mut App, key: KeyCode, client: &reqwest::Client) -> Res
         }
         KeyCode::Char('1') => {
             actions::install_component(app, client, "proton");
-            app.status_message = Some("Installing Proton...".to_owned());
         }
         KeyCode::Char('2') => {
             actions::install_component(app, client, "jadeite");
-            app.status_message = Some("Installing Jadeite...".to_owned());
         }
         _ => {}
     }
