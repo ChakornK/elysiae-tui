@@ -46,12 +46,11 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             let tag = irmin::game_installer::read_installed_tag(path);
             let has_state_file = irmin::sophon_has_resume_state(&path.to_string_lossy());
             let has_chunks = path.join("chunks").exists();
-            // Only consider truly installed if tag exists AND no chunks remain
-            let is_complete = tag.is_some() && !has_chunks;
-            // Game is resumable if incomplete (has chunks or state file)
-            let has_resume = !is_complete && (has_state_file || has_chunks);
+            // Game is truly installed only if exe exists
+            let exe_exists = path.join(game.exe_name()).exists();
+            let has_resume = !exe_exists && (has_state_file || has_chunks);
             app.games.insert(game, crate::app::GameStatus {
-                installed_tag: if is_complete { tag } else { None },
+                installed_tag: if exe_exists { tag } else { None },
                 update_info: None,
                 has_resume,
             });
