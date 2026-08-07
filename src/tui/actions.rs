@@ -217,15 +217,14 @@ async fn ensure_components(
     game: GameId,
     tx: &Sender<SophonProgress>,
 ) -> Result<(), String> {
-    let proton_ok = data_dir.join("proton").exists() && data_dir.join("proton-data").exists();
-    let jadeite_ok = data_dir.join("jadeite").exists();
+    use crate::components::{proton_available, jadeite_available};
 
-    if !proton_ok {
+    if !proton_available(data_dir) {
         install_component_with_progress(client, data_dir, "proton", "Installing Proton", tx)
             .await?;
     }
 
-    if game.needs_jadeite() && !jadeite_ok {
+    if game.needs_jadeite() && !jadeite_available(data_dir) {
         install_component_with_progress(client, data_dir, "jadeite", "Installing Jadeite", tx)
             .await?;
     }
