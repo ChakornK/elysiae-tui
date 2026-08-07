@@ -268,7 +268,7 @@ impl App {
         }
     }
 
-    /// Cancels the active download. Marks the game as partially downloaded.
+    /// Cancels the active download. Cleans up partial component files.
     pub fn finish_download(&mut self) {
         if let Some(ref dl) = self.download {
             dl.handle.cancel();
@@ -278,6 +278,13 @@ impl App {
         }
         self.download = None;
         self.ready_to_launch = false;
+
+        // Remove partial component archives so next install starts clean
+        let data_dir = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+            .join("elysiae-tui");
+        let _ = std::fs::remove_file(data_dir.join("proton.archive"));
+        let _ = std::fs::remove_file(data_dir.join("jadeite.archive"));
     }
 
     /// Dismisses the current error message.
