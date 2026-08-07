@@ -1,10 +1,6 @@
 use std::io;
 use std::path::PathBuf;
 
-use crossterm::execute;
-use crossterm::terminal::{
-    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
-};
 use irmin::{DownloadHandle, SophonProgress};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -121,7 +117,7 @@ pub fn resume_download(app: &mut App, client: &reqwest::Client, progress_tx: &Se
 /// Leaves the TUI, launches the game, then re-enters the TUI.
 pub fn launch_game(
     app: &mut App,
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    _terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let game = app.active_game;
     let gc = app.config.game_config(game).clone();
@@ -135,20 +131,10 @@ pub fn launch_game(
         .join("elysiae-tui");
     let launcher = crate::launcher::Launcher::new(data_dir);
 
-    disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
-
     if let Err(e) = launcher.launch(game, path) {
-        enable_raw_mode()?;
-        execute!(io::stdout(), EnterAlternateScreen)?;
-        *terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
         app.error_message = Some(format!("Launch failed: {e}"));
-        return Ok(());
     }
 
-    enable_raw_mode()?;
-    execute!(io::stdout(), EnterAlternateScreen)?;
-    *terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     Ok(())
 }
 

@@ -26,7 +26,7 @@ impl Launcher {
     }
 
     /// Launches the game. Blocks until the child process exits.
-    /// Launches the game via Proton. Uses sh -c wrapper for shell environment.
+    /// Launches the game via Proton in the background. Does not block.
     pub fn launch(&self, game: GameId, game_dir: &Path) -> Result<(), LaunchError> {
         let proton_bin = self.data_dir.join("proton").join("proton");
         if !proton_bin.exists() {
@@ -60,7 +60,9 @@ impl Launcher {
             .arg(&command_str)
             .env("STEAM_COMPAT_DATA_PATH", &compat_data)
             .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")
-            .status()
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
             .map_err(LaunchError::Spawn)?;
 
         Ok(())
