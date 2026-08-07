@@ -107,7 +107,7 @@ pub fn launch_game(
 
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
-        .join("elysiae-cli");
+        .join("elysiae-tui");
     let launcher = crate::launcher::Launcher::new(data_dir);
 
     if !launcher.proton_available() {
@@ -141,7 +141,7 @@ pub fn install_component(
 ) {
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
-        .join("elysiae-cli");
+        .join("elysiae-tui");
     let mgr = ComponentManager::new(client.clone(), data_dir);
     let component = component.to_owned();
 
@@ -193,7 +193,7 @@ fn spawn_operation(
 fn default_install_path(game: GameId) -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-        .join("elysiae-cli")
+        .join("elysiae-tui")
         .join("games")
         .join(game.as_str())
 }

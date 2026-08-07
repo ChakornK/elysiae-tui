@@ -220,14 +220,14 @@ fn encode_missing(
 fn bg_cache_dir() -> std::path::PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("~/.cache"))
-        .join("elysiae-cli")
+        .join("elysiae-tui")
         .join("backgrounds")
 }
 
 fn quadrant_cache_dir() -> std::path::PathBuf {
     dirs::cache_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("~/.cache"))
-        .join("elysiae-cli")
+        .join("elysiae-tui")
         .join("quadrant")
 }
 

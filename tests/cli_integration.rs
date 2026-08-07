@@ -2,8 +2,8 @@
 
 #[test]
 fn no_args_yields_tui_mode() {
-    // Simulating: elysiae-cli (no subcommand)
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-cli"))
+    // Simulating: elysiae-tui (no subcommand)
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-tui"))
         .arg("--help")
         .output()
         .expect("failed to run binary");
@@ -20,7 +20,7 @@ fn no_args_yields_tui_mode() {
 
 #[test]
 fn download_requires_path() {
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-cli"))
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-tui"))
         .args(["download", "hk4e"])
         .output()
         .expect("failed to run binary");
@@ -33,7 +33,7 @@ fn download_requires_path() {
 
 #[test]
 fn invalid_game_id_rejected() {
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-cli"))
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-tui"))
         .args(["download", "invalid_game", "--path", "/tmp"])
         .output()
         .expect("failed to run binary");
@@ -44,7 +44,7 @@ fn invalid_game_id_rejected() {
 #[test]
 fn check_update_accepts_valid_game() {
     // This will fail at runtime (no install path) but should parse successfully
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-cli"))
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-tui"))
         .args(["check-update", "hk4e"])
         .output()
         .expect("failed to run binary");
@@ -56,7 +56,7 @@ fn check_update_accepts_valid_game() {
 
 #[test]
 fn version_flag_works() {
-    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-cli"))
+    let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-tui"))
         .arg("--version")
         .output()
         .expect("failed to run binary");

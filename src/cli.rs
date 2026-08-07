@@ -152,7 +152,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
 
             let data_dir = dirs::data_dir()
                 .unwrap_or_else(|| PathBuf::from("~/.local/share"))
-                .join("elysiae-cli");
+                .join("elysiae-tui");
 
             let launcher = Launcher::new(data_dir);
             launcher.launch(game, install_path)?;

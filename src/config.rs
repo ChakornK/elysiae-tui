@@ -30,7 +30,7 @@ pub struct ComponentVersions {
 }
 
 const CURRENT_VERSION: u32 = 1;
-const CONFIG_DIR_NAME: &str = "elysiae-cli";
+const CONFIG_DIR_NAME: &str = "elysiae-tui";
 const CONFIG_FILE_NAME: &str = "config.json";
 
 impl Config {
