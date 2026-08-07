@@ -148,6 +148,14 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             app.update_progress(progress);
         }
 
+        // Launch game when components are ready
+        if app.ready_to_launch {
+            app.ready_to_launch = false;
+            if let Err(e) = actions::launch_game(&mut app, &mut terminal) {
+                app.error_message = Some(format!("Launch failed: {e}"));
+            }
+        }
+
         if app.should_quit {
             break;
         }

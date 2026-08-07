@@ -95,7 +95,6 @@ pub fn resume_download(app: &mut App, client: &reqwest::Client, progress_tx: &Se
 }
 
 /// Leaves the TUI, launches the game, then re-enters the TUI.
-/// Checks proton/jadeite availability first.
 pub fn launch_game(
     app: &mut App,
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
@@ -112,27 +111,61 @@ pub fn launch_game(
         .join("elysiae-tui");
     let launcher = crate::launcher::Launcher::new(data_dir);
 
-    if !launcher.proton_available() {
-        app.error_message = Some("Proton not installed. Install it from Settings first.".to_owned());
-        return Ok(());
-    }
-
-    if game.needs_jadeite() && !launcher.jadeite_available() {
-        app.error_message = Some("Jadeite not installed. Install it from Settings first.".to_owned());
-        return Ok(());
-    }
-
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;
 
-        if let Err(e) = launcher.launch(game, path) {
-            app.error_message = Some(format!("Launch failed: {e}"));
-        }
+    if let Err(e) = launcher.launch(game, path) {
+        enable_raw_mode()?;
+        execute!(io::stdout(), EnterAlternateScreen)?;
+        *terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
+        app.error_message = Some(format!("Launch failed: {e}"));
+        return Ok(());
+    }
 
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen)?;
     *terminal = Terminal::new(CrosstermBackend::new(io::stdout()))?;
     Ok(())
+}
+
+/// Installs missing components then launches the game.
+/// If components need installing, shows progress overlay first.
+pub fn prepare_and_launch(
+    app: &mut App,
+    client: &reqwest::Client,
+    progress_tx: &Sender<SophonProgress>,
+) {
+    let game = app.active_game;
+    let data_dir = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+        .join("elysiae-tui");
+
+    use crate::components::{proton_available, jadeite_available};
+    let needs_proton = !proton_available(&data_dir);
+    let needs_jadeite = game.needs_jadeite() && !jadeite_available(&data_dir);
+
+    if !needs_proton && !needs_jadeite {
+        // Components ready — mark as ready to launch (handled by caller)
+        app.ready_to_launch = true;
+        return;
+    }
+
+    // Components missing — install them with progress, then signal ready to launch
+    let handle = DownloadHandle::new();
+    app.start_download(game, handle.clone());
+    if let Some(ref mut dl) = app.download {
+        dl.launch_on_complete = true;
+    }
+    let tx = progress_tx.clone();
+    let client = client.clone();
+
+    tokio::spawn(async move {
+        if let Err(msg) = ensure_components(&client, &data_dir, game, &tx).await {
+            let _ = tx.send(SophonProgress::Error { message: msg }).await;
+            return;
+        }
+        let _ = tx.send(SophonProgress::Finished).await;
+    });
 }
 
 enum Op {

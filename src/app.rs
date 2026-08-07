@@ -27,14 +27,12 @@ pub struct ActiveDownload {
     pub game_id: GameId,
     pub handle: DownloadHandle,
     pub paused: bool,
-    /// Current download phase progress (bytes).
     pub download_progress: Option<DownloadPhase>,
-    /// Current assembly phase progress (files).
     pub assemble_progress: Option<FilePhase>,
-    /// Current checking/verification phase progress (files).
     pub check_progress: Option<FilePhase>,
-    /// Short status label for misc phases (fetching manifest, installing plugins, etc.)
     pub status_label: Option<String>,
+    /// When true, completion triggers a game launch instead of state update.
+    pub launch_on_complete: bool,
 }
 
 /// Download byte progress.
@@ -65,6 +63,7 @@ pub struct App {
     pub error_message: Option<String>,
     pub show_resume_prompt: bool,
     pub backgrounds: HashMap<GameId, QuadrantImage>,
+    pub ready_to_launch: bool,
 }
 
 impl App {
@@ -82,6 +81,7 @@ impl App {
             error_message: None,
             show_resume_prompt: false,
             backgrounds: HashMap::new(),
+            ready_to_launch: false,
         }
     }
 
@@ -113,6 +113,7 @@ impl App {
             assemble_progress: None,
             check_progress: None,
             status_label: Some("Fetching manifest...".to_owned()),
+            launch_on_complete: false,
         });
     }
 
@@ -120,12 +121,15 @@ impl App {
     pub fn update_progress(&mut self, progress: SophonProgress) {
         match &progress {
             SophonProgress::Finished => {
-                // Update game state to reflect installation
                 if let Some(ref dl) = self.download {
+                    if dl.launch_on_complete {
+                        self.ready_to_launch = true;
+                        self.download = None;
+                        return;
+                    }
                     let game = dl.game_id;
                     if let Some(gs) = self.games.get_mut(&game) {
                         gs.has_resume = false;
-                        // Re-read installed tag from disk
                         let gc = self.config.games.get(&game);
                         if let Some(path) = gc.and_then(|c| c.install_path.as_ref()) {
                             gs.installed_tag = irmin::game_installer::read_installed_tag(path);

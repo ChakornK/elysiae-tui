@@ -91,7 +91,7 @@ async fn handle_main(
                 .is_some_and(|i| i.update_available);
 
             if installed && !has_update {
-                actions::launch_game(app, terminal)?;
+                actions::prepare_and_launch(app, client, progress_tx);
             } else if app.download.is_none() {
                 if has_update {
                     actions::start_update(app, client, progress_tx);
