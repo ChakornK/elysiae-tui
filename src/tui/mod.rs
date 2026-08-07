@@ -23,6 +23,9 @@ use crate::ui;
 
 /// Runs the interactive TUI event loop.
 pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
+    // Suppress panic output to prevent terminal corruption
+    std::panic::set_hook(Box::new(|_| {}));
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
