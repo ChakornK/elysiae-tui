@@ -1,7 +1,7 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Gauge, Paragraph};
+use ratatui::widgets::{Gauge, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{App, View};
@@ -68,35 +68,13 @@ pub fn draw(frame: &mut Frame, app: &App) {
     // Top: game selector tabs
     draw_game_tabs(frame, app, tab_area);
 
-    // Middle: main content area
-    if let Some(ref msg) = app.error_message {
-        let error = Paragraph::new(format!(" {}\n\n Press any key to dismiss.", msg))
-            .style(Style::default().fg(ERROR))
-            .block(
-                Block::default()
-                    .title(" Error ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(ERROR)),
-            );
-        frame.render_widget(error, outer[1]);
-    } else if let Some(ref msg) = app.status_message {
-        let status = Paragraph::new(format!(" {}\n\n Press any key to continue.", msg))
-            .style(Style::default().fg(WARNING))
-            .block(
-                Block::default()
-                    .title(" Info ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(WARNING)),
-            );
-        frame.render_widget(status, outer[1]);
-    } else {
-        match app.current_view {
-            View::GameList | View::GameDetail | View::Downloading | View::Settings => {
-                draw_main_panel(frame, app, outer[1]);
-                // Draw progress overlay if download is active
-                if app.download.is_some() {
-                    draw_progress_overlay(frame, app, outer[1]);
-                }
+    // Middle: main content area — always render the main panel
+    match app.current_view {
+        View::GameList | View::GameDetail | View::Downloading | View::Settings => {
+            draw_main_panel(frame, app, outer[1]);
+            // Draw progress overlay if download is active
+            if app.download.is_some() {
+                draw_progress_overlay(frame, app, outer[1]);
             }
         }
     }
@@ -104,32 +82,80 @@ pub fn draw(frame: &mut Frame, app: &App) {
     // Bottom: action bar with primary button + keybinds
     draw_action_bar(frame, app, bar_area);
 
-    // Settings overlay on top of everything
+    // Modal overlays on top of everything
     if app.current_view == View::Settings {
-        // Darken entire window
-        let full = frame.area();
-        let buf = frame.buffer_mut();
-        for cy in full.y..full.bottom() {
-            for cx in full.x..full.right() {
-                let cell = &mut buf[(cx, cy)];
-                if let Color::Rgb(r, g, b) = cell.bg {
-                    cell.set_bg(Color::Rgb(
-                        ((r as u16 * 3 + 26 * 7) / 10) as u8,
-                        ((g as u16 * 3 + 26 * 7) / 10) as u8,
-                        ((b as u16 * 3 + 26 * 7) / 10) as u8,
-                    ));
-                }
-                if let Color::Rgb(r, g, b) = cell.fg {
-                    cell.set_fg(Color::Rgb(
-                        ((r as u16 * 3 + 26 * 7) / 10) as u8,
-                        ((g as u16 * 3 + 26 * 7) / 10) as u8,
-                        ((b as u16 * 3 + 26 * 7) / 10) as u8,
-                    ));
-                }
-            }
-        }
+        darken_full_window(frame);
         draw_settings(frame, app, outer[1]);
     }
+
+    if let Some(ref msg) = app.error_message {
+        darken_full_window(frame);
+        draw_modal(frame, outer[1], "Error", msg, ERROR);
+    } else if let Some(ref msg) = app.status_message {
+        darken_full_window(frame);
+        draw_modal(frame, outer[1], "Info", msg, WARNING);
+    }
+}
+
+/// Darkens the entire window with 70% #1a1a1a overlay.
+fn darken_full_window(frame: &mut Frame) {
+    let full = frame.area();
+    let buf = frame.buffer_mut();
+    for cy in full.y..full.bottom() {
+        for cx in full.x..full.right() {
+            let cell = &mut buf[(cx, cy)];
+            if let Color::Rgb(r, g, b) = cell.bg {
+                cell.set_bg(Color::Rgb(
+                    ((r as u16 * 3 + 26 * 7) / 10) as u8,
+                    ((g as u16 * 3 + 26 * 7) / 10) as u8,
+                    ((b as u16 * 3 + 26 * 7) / 10) as u8,
+                ));
+            }
+            if let Color::Rgb(r, g, b) = cell.fg {
+                cell.set_fg(Color::Rgb(
+                    ((r as u16 * 3 + 26 * 7) / 10) as u8,
+                    ((g as u16 * 3 + 26 * 7) / 10) as u8,
+                    ((b as u16 * 3 + 26 * 7) / 10) as u8,
+                ));
+            }
+        }
+    }
+}
+
+/// Draws a centered modal with a title, message, and [esc] Close hint.
+fn draw_modal(frame: &mut Frame, area: Rect, title: &str, message: &str, color: Color) {
+    let bg_img: Option<&QuadrantImage> = None;
+    let msg_lines: Vec<&str> = message.lines().collect();
+    let msg_w = msg_lines.iter().map(|l| l.len()).max().unwrap_or(20) as u16;
+    let overlay_w = (msg_w + 8).max(30).min(area.width.saturating_sub(4));
+    let overlay_h = (msg_lines.len() as u16 + 6).min(area.height.saturating_sub(2));
+
+    let overlay_rect = Rect::new(
+        area.x + (area.width.saturating_sub(overlay_w)) / 2,
+        area.y + (area.height.saturating_sub(overlay_h)) / 2,
+        overlay_w,
+        overlay_h,
+    );
+
+    render_container(frame, overlay_rect, bg_img);
+    let inner = shrink(overlay_rect, 2, 1);
+
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(Span::styled(
+        title,
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+    for l in &msg_lines {
+        lines.push(Line::from(Span::styled(*l, Style::default().fg(TEXT))));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "[esc] Close",
+        Style::default().fg(TEXT_MUTED),
+    )));
+
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
