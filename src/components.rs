@@ -21,6 +21,25 @@ struct ModuleData {
     tag: String,
 }
 
+/// Returns the architecture suffix used in Aedes download URLs.
+fn current_arch_suffix() -> &'static str {
+    if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        "x86_64"
+    }
+}
+
+/// Selects the appropriate module entry for the current architecture.
+/// ARM builds contain "aarch64" in the URL; x86_64 builds do not.
+fn select_for_arch(modules: &[ModuleData]) -> Option<&ModuleData> {
+    let is_arm = current_arch_suffix() == "aarch64";
+    modules.iter().find(|m| {
+        let url_has_aarch64 = m.download_url.contains("aarch64");
+        if is_arm { url_has_aarch64 } else { !url_has_aarch64 }
+    })
+}
+
 /// Manages Proton and Jadeite downloads from the Aedes CDN.
 pub struct ComponentManager {
     client: reqwest::Client,
@@ -66,10 +85,14 @@ impl ComponentManager {
         extract_dir: &str,
         tx: Sender<ComponentProgress>,
     ) -> Result<String, ComponentError> {
-        let url = format!("{}/{}.json", AEDES_BASE, name);
+        let url = format!("{}/components/{}.json", AEDES_BASE, name);
         let meta: Vec<ModuleData> = self.client.get(&url).send().await?.json().await?;
-        let module = meta.first().ok_or_else(|| {
-            ComponentError::Other(format!("no metadata available for {}", name))
+        let module = select_for_arch(&meta).ok_or_else(|| {
+            ComponentError::Other(format!(
+                "no {} build available for {}",
+                current_arch_suffix(),
+                name
+            ))
         })?;
 
         let mut response = self.client.get(&module.download_url).send().await?;
@@ -159,9 +182,18 @@ impl ComponentManager {
         let _ = std::fs::remove_file(&archive_path);
 
         let tag = module.tag.clone();
+        // Persist tag so the main thread can update config after Finished
+        let tag_path = self.data_dir.join(format!("{}.tag", name));
+        let _ = std::fs::write(&tag_path, &tag);
         let _ = tx.try_send(ComponentProgress::Finished { tag: tag.clone() });
         Ok(tag)
     }
+}
+
+/// Reads a persisted component tag file (e.g. `proton.tag`).
+pub fn read_component_tag(data_dir: &std::path::Path, name: &str) -> Option<String> {
+    let path = data_dir.join(format!("{}.tag", name));
+    std::fs::read_to_string(path).ok().filter(|s| !s.is_empty())
 }
 
 /// Checks whether Proton directories exist and are non-empty.

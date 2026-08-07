@@ -9,15 +9,17 @@ use crossterm::event::{self, Event, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use irmin::SophonProgress;
+use irmin::game_installer::UpdateInfo;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-use crate::app::App;
+use crate::app::{App, GameStatus};
 use crate::backgrounds::Backgrounds;
 use crate::config::Config;
 use crate::game::GameId;
+use crate::operations::Operations;
 use crate::quadrant::QuadrantImage;
 use crate::ui;
 
@@ -72,6 +74,33 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         let _ = bg_tx.send(encoded);
     });
 
+    // Spawn background update check for all installed games
+    let (update_tx, mut update_rx) = oneshot::channel::<HashMap<GameId, UpdateInfo>>();
+    let update_client = client.clone();
+    let update_configs: Vec<_> = GameId::ALL
+        .iter()
+        .filter_map(|&game| {
+            let gc = app.config.game_config(game).clone();
+            let path = gc.install_path.as_ref()?.to_string_lossy().to_string();
+            // Only check games that are actually installed
+            if app.games.get(&game).and_then(|gs| gs.installed_tag.as_ref()).is_some() {
+                Some((game, gc.vo_lang.clone(), path))
+            } else {
+                None
+            }
+        })
+        .collect();
+    tokio::spawn(async move {
+        let ops = Operations::new(update_client);
+        let mut results = HashMap::new();
+        for (game, vo_lang, path) in update_configs {
+            if let Ok(info) = ops.check_update(game, &vo_lang, &path).await {
+                results.insert(game, info);
+            }
+        }
+        let _ = update_tx.send(results);
+    });
+
     check_resume_state(&mut app);
 
     // Main event loop — TUI is interactive immediately
@@ -86,6 +115,18 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             // Replace with a dummy channel
             let (_tx, rx) = oneshot::channel();
             bg_rx = rx;
+            drop(_tx);
+        }
+
+        // Receive background update check results
+        if let Ok(updates) = update_rx.try_recv() {
+            for (game, info) in updates {
+                if let Some(gs) = app.games.get_mut(&game) {
+                    gs.update_info = Some(info);
+                }
+            }
+            let (_tx, rx) = oneshot::channel();
+            update_rx = rx;
             drop(_tx);
         }
 

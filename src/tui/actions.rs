@@ -214,6 +214,7 @@ fn spawn_operation(
 }
 
 /// Installs Proton (and Jadeite for HKRPG) if not already present.
+/// Persists installed component versions to config.
 async fn ensure_components(
     client: &reqwest::Client,
     data_dir: &std::path::Path,
@@ -222,10 +223,14 @@ async fn ensure_components(
     handle: &DownloadHandle,
 ) -> Result<(), String> {
     use crate::components::{jadeite_available, proton_available};
+    use crate::config::Config;
 
     if !proton_available(data_dir) {
-        install_component_with_progress(client, data_dir, "proton", "Installing Proton", tx, handle)
+        let tag = install_component_with_progress(client, data_dir, "proton", "Installing Proton", tx, handle)
             .await?;
+        let mut config = Config::load();
+        config.installed_components.proton = Some(tag);
+        let _ = config.save();
     }
 
     if handle.is_cancelled() {
@@ -233,8 +238,11 @@ async fn ensure_components(
     }
 
     if game.needs_jadeite() && !jadeite_available(data_dir) {
-        install_component_with_progress(client, data_dir, "jadeite", "Installing Jadeite", tx, handle)
+        let tag = install_component_with_progress(client, data_dir, "jadeite", "Installing Jadeite", tx, handle)
             .await?;
+        let mut config = Config::load();
+        config.installed_components.jadeite = Some(tag);
+        let _ = config.save();
     }
 
     Ok(())
@@ -242,6 +250,7 @@ async fn ensure_components(
 
 /// Installs a single component, bridging ComponentProgress to SophonProgress.
 /// Checks handle cancellation and aborts the install task if cancelled.
+/// Returns the installed version tag on success.
 async fn install_component_with_progress(
     client: &reqwest::Client,
     data_dir: &std::path::Path,
@@ -249,7 +258,7 @@ async fn install_component_with_progress(
     status_msg: &str,
     tx: &Sender<SophonProgress>,
     handle: &DownloadHandle,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let _ = tx
         .send(SophonProgress::Warning {
             message: status_msg.to_owned(),
@@ -319,7 +328,7 @@ async fn install_component_with_progress(
     }
 
     match install_task.await {
-        Ok(Ok(_tag)) => Ok(()),
+        Ok(Ok(tag)) => Ok(tag),
         Ok(Err(e)) => Err(format!("{}: {}", status_msg, e)),
         Err(e) if e.is_cancelled() => {
             let archive = data_dir.join(format!("{}.archive", component));
