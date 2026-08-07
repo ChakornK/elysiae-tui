@@ -101,7 +101,12 @@ async fn handle_main(
                 .is_some_and(|i| i.update_available);
 
             if installed && !has_update {
-                actions::prepare_and_launch(app, client, progress_tx);
+                // Don't launch if this game is already running
+                if app.game_running && app.launch_log_game == Some(game) {
+                    // no-op
+                } else {
+                    actions::prepare_and_launch(app, client, progress_tx);
+                }
             } else if app.download.is_none() {
                 if has_update {
                     actions::start_update(app, client, progress_tx);

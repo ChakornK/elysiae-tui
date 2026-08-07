@@ -743,6 +743,8 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         // Disabled if: downloading another game (and not launchable), OR
         // waiting for components before launch (launch_on_complete)
         (dl.game_id != game && !(installed && !has_update)) || dl.launch_on_complete
+    } else if app.game_running && app.launch_log_game == Some(app.selected_game()) {
+        true
     } else {
         false
     };

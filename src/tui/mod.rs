@@ -231,6 +231,10 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
         // Receive game launch log lines
         while let Ok(line) = log_rx.try_recv() {
+            if line == "\x00__PROCESS_EXIT__" {
+                app.game_running = false;
+                continue;
+            }
             app.launch_log.push(line);
             if app.launch_log.len() > 1000 {
                 app.launch_log.remove(0);

@@ -111,6 +111,8 @@ impl Launcher {
                 let _ = h.await;
             }
             let _ = child.wait().await;
+            // Signal process exit
+            let _ = log_tx.send("\x00__PROCESS_EXIT__".to_owned()).await;
         });
 
         Ok(())
