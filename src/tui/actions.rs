@@ -135,82 +135,6 @@ pub fn launch_game(
     Ok(())
 }
 
-/// Spawns a component install from settings. Sets ActiveDownload for progress display.
-pub fn install_component(
-    app: &mut App,
-    client: &reqwest::Client,
-    component: &str,
-    progress_tx: &Sender<SophonProgress>,
-) {
-    let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
-        .join("elysiae-tui");
-    let component = component.to_owned();
-    let tx = progress_tx.clone();
-    let client = client.clone();
-
-    // Set an ActiveDownload so the progress overlay appears
-    let handle = DownloadHandle::new();
-    app.start_download(app.active_game, handle);
-
-    tokio::spawn(async move {
-        let status_msg = format!("Installing {}", component);
-        let _ = tx.send(SophonProgress::FetchingManifest).await;
-
-        let mgr = ComponentManager::new(client, data_dir);
-        let (comp_tx, mut comp_rx) = tokio::sync::mpsc::channel::<ComponentProgress>(64);
-
-        let comp_name = component.clone();
-        let install_handle = tokio::spawn(async move {
-            if comp_name == "proton" {
-                mgr.install_proton(comp_tx).await
-            } else {
-                mgr.install_jadeite(comp_tx).await
-            }
-        });
-
-        // Bridge component progress to sophon progress
-        while let Some(prog) = comp_rx.recv().await {
-            match prog {
-                ComponentProgress::Downloading { downloaded_bytes, total_bytes } => {
-                    let _ = tx.send(SophonProgress::Downloading {
-                        downloaded_bytes,
-                        total_bytes,
-                        speed_bps: 0.0,
-                        eta_seconds: 0.0,
-                    }).await;
-                }
-                ComponentProgress::Extracting => {
-                    // Keep showing last download state
-                }
-                ComponentProgress::Finished { .. } => {}
-                ComponentProgress::Error { message } => {
-                    let _ = tx.send(SophonProgress::Error {
-                        message: format!("{}: {}", status_msg, message),
-                    }).await;
-                    return;
-                }
-            }
-        }
-
-        match install_handle.await {
-            Ok(Ok(_tag)) => {
-                let _ = tx.send(SophonProgress::Finished).await;
-            }
-            Ok(Err(e)) => {
-                let _ = tx.send(SophonProgress::Error {
-                    message: format!("{}: {}", status_msg, e),
-                }).await;
-            }
-            Err(e) => {
-                let _ = tx.send(SophonProgress::Error {
-                    message: format!("{}: task panicked: {}", status_msg, e),
-                }).await;
-            }
-        }
-    });
-}
-
 enum Op {
     Download,
     Update,
@@ -233,8 +157,8 @@ fn spawn_operation(
             .unwrap_or_else(|| PathBuf::from("~/.local/share"))
             .join("elysiae-tui");
 
-        // Auto-install components before download/update operations
-        if matches!(op, Op::Download | Op::Update) {
+        // Auto-install components before any download operation
+        if matches!(op, Op::Download | Op::Update | Op::Preinstall) {
             if let Err(msg) = ensure_components(&client, &data_dir, game, &tx).await {
                 let _ = tx.send(SophonProgress::Error { message: msg }).await;
                 return;

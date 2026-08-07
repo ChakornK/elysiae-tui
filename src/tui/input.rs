@@ -126,16 +126,10 @@ async fn handle_main(
     Ok(())
 }
 
-fn handle_settings(app: &mut App, key: KeyCode, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_settings(app: &mut App, key: KeyCode, _client: &reqwest::Client, _progress_tx: &Sender<SophonProgress>) -> Result<(), Box<dyn std::error::Error>> {
     match key {
         KeyCode::Esc => {
             app.current_view = View::GameList;
-        }
-        KeyCode::Char('1') => {
-            actions::install_component(app, client, "proton", progress_tx);
-        }
-        KeyCode::Char('2') => {
-            actions::install_component(app, client, "jadeite", progress_tx);
         }
         _ => {}
     }

@@ -596,11 +596,11 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         .as_deref()
         .unwrap_or("not installed");
     lines.push(Line::from(vec![
-        Span::styled("[1] Proton   ", Style::default().fg(SUCCESS)),
+        Span::styled("Proton   ", Style::default().fg(SUCCESS)),
         Span::styled(proton, Style::default().fg(TEXT_MUTED)),
     ]));
     lines.push(Line::from(vec![
-        Span::styled("[2] Jadeite  ", Style::default().fg(MAGENTA)),
+        Span::styled("Jadeite  ", Style::default().fg(MAGENTA)),
         Span::styled(jadeite, Style::default().fg(TEXT_MUTED)),
     ]));
 
@@ -649,7 +649,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     } else {
         match app.current_view {
             View::GameList => "[q] quit  [s] settings  [←/→] switch game",
-            View::Settings => "[esc] back  [1] proton  [2] jadeite",
+            View::Settings => "[esc] back",
         }
     };
     let keys_display_w = keys.chars().count() as u16;
