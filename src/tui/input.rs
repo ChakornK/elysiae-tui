@@ -82,6 +82,15 @@ async fn handle_main(
             app.active_game = app.selected_game();
             actions::refresh_update_info(app, client).await;
         }
+        // Number keys to switch tabs directly
+        KeyCode::Char(n @ '1'..='4') => {
+            let idx = (n as usize) - ('1' as usize);
+            if idx < crate::game::GameId::ALL.len() {
+                app.game_list_index = idx;
+                app.active_game = app.selected_game();
+                actions::refresh_update_info(app, client).await;
+            }
+        }
         // Actions on current game
         KeyCode::Char('d') => actions::start_download(app, client, progress_tx),
         KeyCode::Char('u') => actions::start_update(app, client, progress_tx),

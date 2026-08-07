@@ -81,10 +81,11 @@ fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
 
     let titles: Vec<Line> = GameId::ALL
         .iter()
-        .map(|g| {
+        .enumerate()
+        .map(|(i, g)| {
             let color = game_color(*g);
             Line::from(Span::styled(
-                format!(" {} ", g.display_name()),
+                format!(" [{}] {} ", i + 1, g.display_name()),
                 Style::default().fg(color),
             ))
         })
