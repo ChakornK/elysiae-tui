@@ -261,7 +261,11 @@ async fn install_component_with_progress(
         }
     });
 
-    // Bridge component progress to sophon progress for the overlay
+    // Track speed for ETA calculation
+    let mut last_bytes: u64 = 0;
+    let mut last_time = std::time::Instant::now();
+    let mut speed_bps: f64 = 0.0;
+
     let status = status_msg.to_owned();
     while let Some(prog) = comp_rx.recv().await {
         match prog {
@@ -269,25 +273,29 @@ async fn install_component_with_progress(
                 downloaded_bytes,
                 total_bytes,
             } => {
+                let now = std::time::Instant::now();
+                let elapsed = now.duration_since(last_time).as_secs_f64();
+                if elapsed > 0.3 {
+                    let bytes_delta = downloaded_bytes.saturating_sub(last_bytes);
+                    speed_bps = bytes_delta as f64 / elapsed;
+                    last_bytes = downloaded_bytes;
+                    last_time = now;
+                }
+                let eta = if speed_bps > 0.0 && total_bytes > downloaded_bytes {
+                    (total_bytes - downloaded_bytes) as f64 / speed_bps
+                } else {
+                    0.0
+                };
                 let _ = tx
                     .send(SophonProgress::Downloading {
                         downloaded_bytes,
                         total_bytes,
-                        speed_bps: 0.0,
-                        eta_seconds: 0.0,
+                        speed_bps,
+                        eta_seconds: eta,
                     })
                     .await;
             }
-            ComponentProgress::Extracting => {
-                let _ = tx
-                    .send(SophonProgress::Downloading {
-                        downloaded_bytes: 0,
-                        total_bytes: 0,
-                        speed_bps: 0.0,
-                        eta_seconds: 0.0,
-                    })
-                    .await;
-            }
+            ComponentProgress::Extracting => {}
             ComponentProgress::Finished { .. } => {}
             ComponentProgress::Error { message } => {
                 return Err(format!("{}: {}", status, message));
