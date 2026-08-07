@@ -415,7 +415,7 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     // Calculate how many rows we need
     let mut rows: u16 = 1; // "Installing <game>" header
     if dl.status_label.is_some() {
-        rows += 1;
+        rows += 2; // gap + label
     }
     if dl.download_progress.is_some() {
         rows += 2; // gap + bar
@@ -462,8 +462,9 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     );
     y += 1;
 
-    // Status label (fetching manifest, plugins, etc.)
+    // Status label (fetching manifest, extracting, etc.)
     if let Some(ref label) = dl.status_label {
+        y += 1; // gap between header and status
         let line = Line::from(Span::styled(
             label.as_str(),
             Style::default().fg(TEXT_MUTED),
