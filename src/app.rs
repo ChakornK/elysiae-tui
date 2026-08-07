@@ -176,7 +176,6 @@ impl App {
                     speed_bps: 0.0,
                     eta_seconds: 0.0,
                 });
-                dl.status_label = Some("Paused".to_owned());
             }
             SophonProgress::Assembling {
                 assembled_files,
