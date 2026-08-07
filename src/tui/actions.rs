@@ -123,9 +123,9 @@ pub fn launch_game(
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen)?;
 
-    if let Err(e) = launcher.launch(game, path) {
-        eprintln!("launch failed: {e}");
-    }
+        if let Err(e) = launcher.launch(game, path) {
+            app.error_message = Some(format!("Launch failed: {e}"));
+        }
 
     enable_raw_mode()?;
     execute!(io::stdout(), EnterAlternateScreen)?;
@@ -153,8 +153,8 @@ pub fn install_component(
             mgr.install_jadeite(tx).await
         };
         match result {
-            Ok(tag) => eprintln!("{component} installed: {tag}"),
-            Err(e) => eprintln!("{component} install failed: {e}"),
+            Ok(_tag) => {}
+            Err(_e) => {}
         }
     });
 }
@@ -184,8 +184,8 @@ fn spawn_operation(
             Op::Preinstall => ops.preinstall(game, &vo_lang, &path, &handle, tx).await,
             Op::Verify => ops.verify(game, &vo_lang, &path, tx).await,
         };
-        if let Err(e) = result {
-            eprintln!("operation failed: {e}");
+        if let Err(_e) = result {
+            // Error is reported via progress channel
         }
     });
 }

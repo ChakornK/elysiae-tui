@@ -122,6 +122,8 @@ impl ComponentManager {
                 std::process::Command::new("sh")
                     .arg(&script)
                     .current_dir(&dest_dir)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
                     .status()?;
             }
         }
@@ -141,18 +143,22 @@ impl ComponentManager {
 }
 
 fn extract_tar_gz(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), ComponentError> {
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     Command::new("tar")
         .args(["xzf", archive.to_str().unwrap_or_default(), "-C", dest.to_str().unwrap_or_default(), "--strip-components=1"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map_err(ComponentError::Io)?;
     Ok(())
 }
 
 fn extract_zip(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), ComponentError> {
-    use std::process::Command;
+    use std::process::{Command, Stdio};
     Command::new("unzip")
         .args(["-o", archive.to_str().unwrap_or_default(), "-d", dest.to_str().unwrap_or_default()])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map_err(ComponentError::Io)?;
     Ok(())
