@@ -32,14 +32,6 @@ fn current_arch_suffix() -> &'static str {
 
 /// Selects the appropriate module entry for the current architecture.
 /// ARM builds contain "aarch64" in the URL; x86_64 builds do not.
-fn select_for_arch(modules: &[ModuleData]) -> Option<&ModuleData> {
-    let is_arm = current_arch_suffix() == "aarch64";
-    modules.iter().find(|m| {
-        let url_has_aarch64 = m.download_url.contains("aarch64");
-        if is_arm { url_has_aarch64 } else { !url_has_aarch64 }
-    })
-}
-
 /// Manages Proton and Jadeite downloads from the Aedes CDN.
 pub struct ComponentManager {
     client: reqwest::Client,
@@ -56,7 +48,29 @@ pub enum ComponentError {
     Other(String),
 }
 
-const AEDES_BASE: &str = "https://aedes.elysiae.app";
+const AEDES_BASE: &str = "https://aedes.elysiae.app/components";
+
+/// Returns the correct download URL for the current architecture.
+/// The Aedes API may serve architecture-specific URLs, or we override
+/// to get the correct GE-Proton build for x86_64 vs aarch64.
+fn resolve_download_url(module: &ModuleData, name: &str) -> String {
+    let arch = std::env::consts::ARCH;
+    // If the URL already matches our arch, use it directly
+    if arch == "aarch64" && module.download_url.contains("aarch64") {
+        return module.download_url.clone();
+    }
+    if arch == "x86_64" && !module.download_url.contains("aarch64") {
+        return module.download_url.clone();
+    }
+    // Override: swap architecture in the GitHub release URL
+    if name == "proton" && arch == "x86_64" && module.download_url.contains("aarch64") {
+        return module.download_url.replace("-aarch64.tar.gz", ".tar.gz");
+    }
+    if name == "proton" && arch == "aarch64" && !module.download_url.contains("aarch64") {
+        return module.download_url.replace(".tar.gz", "-aarch64.tar.gz");
+    }
+    module.download_url.clone()
+}
 
 impl ComponentManager {
     pub fn new(client: reqwest::Client, data_dir: PathBuf) -> Self {
@@ -85,17 +99,14 @@ impl ComponentManager {
         extract_dir: &str,
         tx: Sender<ComponentProgress>,
     ) -> Result<String, ComponentError> {
-        let url = format!("{}/components/{}.json", AEDES_BASE, name);
+        let url = format!("{}/{}.json", AEDES_BASE, name);
         let meta: Vec<ModuleData> = self.client.get(&url).send().await?.json().await?;
-        let module = select_for_arch(&meta).ok_or_else(|| {
-            ComponentError::Other(format!(
-                "no {} build available for {}",
-                current_arch_suffix(),
-                name
-            ))
+        let module = meta.first().ok_or_else(|| {
+            ComponentError::Other(format!("no metadata available for {}", name))
         })?;
 
-        let mut response = self.client.get(&module.download_url).send().await?;
+        let download_url = resolve_download_url(module, name);
+        let mut response = self.client.get(&download_url).send().await?;
         let total = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
 
@@ -208,7 +219,7 @@ pub async fn component_needs_update(
         Some(tag) => tag,
         None => return false, // Not installed — handled by availability checks
     };
-    let url = format!("{}/components/{}.json", AEDES_BASE, name);
+    let url = format!("{}/{}.json", AEDES_BASE, name);
     let meta: Vec<ModuleData> = match client.get(&url).send().await.and_then(|r| Ok(r)) {
         Ok(resp) => match resp.json().await {
             Ok(m) => m,
@@ -216,7 +227,7 @@ pub async fn component_needs_update(
         },
         Err(_) => return false,
     };
-    match select_for_arch(&meta) {
+    match meta.first() {
         Some(module) => module.tag != installed_tag,
         None => false,
     }
