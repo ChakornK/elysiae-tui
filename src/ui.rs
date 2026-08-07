@@ -323,7 +323,7 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         rows += 1;
     }
     if dl.download_progress.is_some() {
-        rows += 1;
+        rows += 2; // bar + ETA line
     }
     if dl.verify_progress.is_some() {
         rows += 1;
@@ -366,26 +366,36 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         } else {
             0.0
         };
-        let label = if dp.speed_bps > 0.0 {
-            format!(
-                " Downloading {:.1}%  {}/s  ETA {}",
-                pct * 100.0,
-                format_bytes(dp.speed_bps as u64),
-                format_eta(dp.eta_seconds)
-            )
-        } else {
-            format!(
-                " Downloading {:.1}%  {}/{}",
-                pct * 100.0,
-                format_bytes(dp.downloaded_bytes),
-                format_bytes(dp.total_bytes)
-            )
-        };
+        let bar_label = format!(
+            " Downloading {:.1}%  {}/{}",
+            pct * 100.0,
+            format_bytes(dp.downloaded_bytes),
+            format_bytes(dp.total_bytes)
+        );
         let gauge = Gauge::default()
             .gauge_style(Style::default().fg(game_color(game)).bg(Color::DarkGray))
             .ratio(pct.clamp(0.0, 1.0))
-            .label(Span::styled(label, Style::default().fg(Color::White)));
+            .label(Span::styled(bar_label, Style::default().fg(Color::White)));
         frame.render_widget(gauge, Rect::new(inner.x, y, inner.width, 1));
+        y += 1;
+
+        // ETA line below the bar
+        let eta_text = if dp.speed_bps > 0.0 {
+            format!(
+                " {}/s  ETA {}",
+                format_bytes(dp.speed_bps as u64),
+                format_eta(dp.eta_seconds)
+            )
+        } else if dp.downloaded_bytes > 0 {
+            " Paused".to_owned()
+        } else {
+            " Starting...".to_owned()
+        };
+        let eta_line = Line::from(Span::styled(eta_text, Style::default().fg(Color::Gray)));
+        frame.render_widget(
+            Paragraph::new(eta_line),
+            Rect::new(inner.x, y, inner.width, 1),
+        );
         y += 1;
     }
 
