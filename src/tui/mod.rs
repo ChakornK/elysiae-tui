@@ -39,7 +39,10 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         let gc = app.config.game_config(game).clone();
         if let Some(ref path) = gc.install_path {
             let tag = irmin::game_installer::read_installed_tag(path);
-            let has_resume = irmin::sophon_has_resume_state(&path.to_string_lossy());
+            let has_state_file = irmin::sophon_has_resume_state(&path.to_string_lossy());
+            // Also consider it resumable if chunks dir exists (partial download without state)
+            let has_chunks = path.join("chunks").exists();
+            let has_resume = has_state_file || (tag.is_none() && has_chunks);
             app.games.insert(game, crate::app::GameStatus {
                 installed_tag: tag,
                 update_info: None,
