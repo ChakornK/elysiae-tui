@@ -92,6 +92,13 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
 
+                // Ctrl+C always quits
+                if key.code == crossterm::event::KeyCode::Char('c')
+                    && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+                {
+                    break;
+                }
+
                 if app.error_message.is_some() {
                     app.dismiss_error();
                     continue;
