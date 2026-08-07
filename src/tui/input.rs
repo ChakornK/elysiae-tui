@@ -83,12 +83,25 @@ async fn handle_main(
                 app.active_game = app.selected_game();
             }
         }
-        // Actions on current game
-        KeyCode::Char('d') => actions::start_download(app, client, progress_tx),
-        KeyCode::Char('u') => actions::start_update(app, client, progress_tx),
-        KeyCode::Char('l') => actions::launch_game(app, terminal)?,
+        // Primary action (Enter)
+        KeyCode::Enter => {
+            let game = app.selected_game();
+            let status = app.games.get(&game);
+            let installed = status.and_then(|s| s.installed_tag.as_ref()).is_some();
+            let has_update = status
+                .and_then(|s| s.update_info.as_ref())
+                .is_some_and(|i| i.update_available);
+            let has_resume = status.is_some_and(|s| s.has_resume);
+
+            if has_update {
+                actions::start_update(app, client, progress_tx);
+            } else if has_resume || !installed {
+                actions::start_download(app, client, progress_tx);
+            } else {
+                actions::launch_game(app, terminal)?;
+            }
+        }
         KeyCode::Char('v') => actions::start_verify(app, client, progress_tx),
-        KeyCode::Char('p') => actions::start_preinstall(app, client, progress_tx),
         KeyCode::Char('s') => app.current_view = View::Settings,
         _ => {}
     }

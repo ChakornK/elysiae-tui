@@ -581,12 +581,12 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-fn primary_button(app: &App) -> (&'static str, Color, char) {
+fn primary_button(app: &App) -> (&'static str, Color, &'static str) {
     if app.download.is_some() {
-        return ("Downloading...", WARNING, 'p');
+        return ("Downloading...", WARNING, "p");
     }
     match app.current_view {
-        View::Settings => ("Settings", ACCENT, 's'),
+        View::Settings => ("Settings", ACCENT, "s"),
         _ => {
             let game = app.selected_game();
             let status = app.games.get(&game);
@@ -597,13 +597,13 @@ fn primary_button(app: &App) -> (&'static str, Color, char) {
             let has_resume = status.is_some_and(|s| s.has_resume);
 
             if has_update {
-                ("Update", SUCCESS, 'u')
+                ("Update", SUCCESS, "⏎")
             } else if has_resume {
-                ("Resume", WARNING, 'd')
+                ("Resume", WARNING, "⏎")
             } else if installed {
-                ("Launch", ACCENT, 'l')
+                ("Launch", ACCENT, "⏎")
             } else {
-                ("Get Game", WARNING, 'd')
+                ("Get Game", WARNING, "⏎")
             }
         }
     }
