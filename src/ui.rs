@@ -233,6 +233,27 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     if header_rect.height >= 2 {
         render_container(frame, header_rect, bg_img);
         let inner = shrink(header_rect, 2, 1);
+
+        let has_resume = status.is_some_and(|s| s.has_resume);
+        let has_update = status
+            .and_then(|s| s.update_info.as_ref())
+            .is_some_and(|i| i.update_available);
+        let has_preinstall = status
+            .and_then(|s| s.update_info.as_ref())
+            .is_some_and(|i| i.preinstall_available);
+
+        let state_text = if installed.is_some() && has_update {
+            format!("v{} - update available", installed.unwrap())
+        } else if installed.is_some() && has_preinstall {
+            format!("v{} - preinstall available", installed.unwrap())
+        } else if installed.is_some() {
+            format!("v{}", installed.unwrap())
+        } else if has_resume {
+            "Partially downloaded".to_owned()
+        } else {
+            "Not installed".to_owned()
+        };
+
         let header_lines = vec![
             Line::from(Span::styled(
                 format!(" {}", game.display_name().to_uppercase()),
@@ -241,12 +262,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
                     .add_modifier(Modifier::BOLD),
             )),
             Line::from(Span::styled(
-                format!(
-                    " {}",
-                    installed
-                        .map(|t| format!("v{}", t))
-                        .unwrap_or_else(|| "Not installed".to_owned())
-                ),
+                format!(" {}", state_text),
                 Style::default().fg(TEXT_MUTED),
             )),
         ];
