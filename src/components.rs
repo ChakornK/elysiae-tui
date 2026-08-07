@@ -37,7 +37,7 @@ pub enum ComponentError {
     Other(String),
 }
 
-const AEDES_BASE: &str = "https://aedes.elysiae.app/components";
+const AEDES_BASE: &str = "https://aedes.elysiae.app";
 
 impl ComponentManager {
     pub fn new(client: reqwest::Client, data_dir: PathBuf) -> Self {
