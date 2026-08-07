@@ -665,23 +665,53 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         );
     }
 
+    // Determine if button is disabled (downloading another game, and this isn't a launch)
+    let btn_disabled =
+        app.download.is_some() && btn_text != "Launch" && btn_text != "Downloading...";
+
     // Render right button (solid color, no container)
     let buf = frame.buffer_mut();
     for cy in btn_rect.y..btn_rect.bottom() {
         for cx in btn_rect.x..btn_rect.right() {
             let cell = &mut buf[(cx, cy)];
             cell.set_char(' ');
-            cell.set_bg(btn_color);
+            if btn_disabled {
+                // 70% opacity: blend button color with black
+                if let Color::Rgb(r, g, b) = btn_color {
+                    cell.set_bg(Color::Rgb(
+                        ((r as u16 * 3) / 10) as u8,
+                        ((g as u16 * 3) / 10) as u8,
+                        ((b as u16 * 3) / 10) as u8,
+                    ));
+                }
+            } else {
+                cell.set_bg(btn_color);
+            }
             cell.set_fg(BLACK);
         }
     }
     let btn_inner = shrink(btn_rect, 2, 1);
+    let btn_fg = if btn_disabled { TEXT_MUTED } else { BLACK };
+    let btn_bg = if btn_disabled {
+        // Match the dimmed bg
+        if let Color::Rgb(r, g, b) = btn_color {
+            Color::Rgb(
+                ((r as u16 * 3) / 10) as u8,
+                ((g as u16 * 3) / 10) as u8,
+                ((b as u16 * 3) / 10) as u8,
+            )
+        } else {
+            btn_color
+        }
+    } else {
+        btn_color
+    };
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             btn_label,
             Style::default()
-                .fg(BLACK)
-                .bg(btn_color)
+                .fg(btn_fg)
+                .bg(btn_bg)
                 .add_modifier(Modifier::BOLD),
         ))),
         btn_inner,

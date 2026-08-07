@@ -93,12 +93,16 @@ async fn handle_main(
                 .is_some_and(|i| i.update_available);
             let has_resume = status.is_some_and(|s| s.has_resume);
 
-            if has_update {
-                actions::start_update(app, client, progress_tx);
-            } else if has_resume || !installed {
-                actions::start_download(app, client, progress_tx);
-            } else {
+            if installed && !has_update {
+                // Launch is always allowed
                 actions::launch_game(app, terminal)?;
+            } else if app.download.is_none() {
+                // Downloads/updates only when no active download
+                if has_update {
+                    actions::start_update(app, client, progress_tx);
+                } else {
+                    actions::start_download(app, client, progress_tx);
+                }
             }
         }
         KeyCode::Char('v') => actions::start_verify(app, client, progress_tx),
