@@ -257,11 +257,17 @@ async fn ensure_components(
     };
 
     if proton_missing || proton_outdated {
-        let label = if proton_outdated { "Updating Proton" } else { "Installing Proton" };
-        // Remove old install before updating so extraction starts clean
-        if proton_outdated {
-            let _ = std::fs::remove_dir_all(data_dir.join("proton"));
+        let label = if proton_outdated {
+            "Updating Proton"
+        } else {
+            "Installing Proton"
+        };
+        // Remove stale/wrong-arch install before downloading fresh
+        let proton_dir = data_dir.join("proton");
+        if proton_dir.exists() {
+            let _ = std::fs::remove_dir_all(&proton_dir);
         }
+        let _ = std::fs::remove_dir_all(data_dir.join("proton-data"));
         let tag = install_component_with_progress(client, data_dir, "proton", label, tx, handle)
             .await?;
         let mut config = Config::load();

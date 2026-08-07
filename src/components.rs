@@ -233,15 +233,49 @@ pub async fn component_needs_update(
     }
 }
 
-/// Checks whether Proton directories exist and are non-empty.
+/// Checks whether Proton is installed and has correct architecture.
 pub fn proton_available(data_dir: &std::path::Path) -> bool {
     let proton_dir = data_dir.join("proton");
     let proton_data = data_dir.join("proton-data");
-    proton_dir.exists()
-        && proton_data.exists()
-        && std::fs::read_dir(&proton_dir)
-            .map(|mut d| d.next().is_some())
-            .unwrap_or(false)
+    if !proton_dir.exists() || !proton_data.exists() {
+        return false;
+    }
+    if !std::fs::read_dir(&proton_dir)
+        .map(|mut d| d.next().is_some())
+        .unwrap_or(false)
+    {
+        return false;
+    }
+    // Verify wine binary matches host architecture
+    let wine_bin = proton_dir.join("files").join("bin").join("wine");
+    if !wine_bin.exists() {
+        return false;
+    }
+    is_correct_arch(&wine_bin)
+}
+
+/// Checks ELF header to verify binary matches the current architecture.
+fn is_correct_arch(path: &std::path::Path) -> bool {
+    use std::io::Read;
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+    let mut header = [0u8; 20];
+    if file.read_exact(&mut header).is_err() {
+        return false;
+    }
+    // ELF magic: 0x7f 'E' 'L' 'F'
+    if &header[0..4] != b"\x7fELF" {
+        return false;
+    }
+    // e_machine at offset 18 (little-endian u16)
+    let machine = u16::from_le_bytes([header[18], header[19]]);
+    match std::env::consts::ARCH {
+        "x86_64" => machine == 62,   // EM_X86_64
+        "aarch64" => machine == 183, // EM_AARCH64
+        _ => true, // Unknown arch — assume OK
+    }
 }
 
 /// Checks whether Jadeite directory exists and is non-empty.
@@ -325,8 +359,14 @@ mod tests {
     fn proton_available_returns_true_when_populated() {
         let tmp = TempDir::new().unwrap();
         let proton = tmp.path().join("proton");
-        fs::create_dir_all(&proton).unwrap();
-        fs::write(proton.join("proton"), "binary").unwrap();
+        fs::create_dir_all(proton.join("files").join("bin")).unwrap();
+        // Write a fake ELF with correct arch header
+        let mut elf = vec![0x7f, b'E', b'L', b'F', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        // e_machine at offset 18: EM_X86_64=62 or EM_AARCH64=183
+        let machine: u16 = if std::env::consts::ARCH == "aarch64" { 183 } else { 62 };
+        elf.extend_from_slice(&machine.to_le_bytes());
+        fs::write(proton.join("files").join("bin").join("wine"), &elf).unwrap();
+        fs::write(proton.join("proton"), "script").unwrap();
         fs::create_dir_all(tmp.path().join("proton-data")).unwrap();
         assert!(proton_available(tmp.path()));
     }

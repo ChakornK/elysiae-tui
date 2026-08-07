@@ -26,6 +26,7 @@ impl Launcher {
     }
 
     /// Launches the game. Blocks until the child process exits.
+    /// Launches the game via Proton. Uses sh -c wrapper for shell environment.
     pub fn launch(&self, game: GameId, game_dir: &Path) -> Result<(), LaunchError> {
         let proton_bin = self.data_dir.join("proton").join("proton");
         if !proton_bin.exists() {
@@ -39,28 +40,28 @@ impl Launcher {
 
         let compat_data = self.data_dir.join("proton-data");
 
-        if game.needs_jadeite() {
+        let command_str = if game.needs_jadeite() {
             let jadeite_exe = self.data_dir.join("jadeite").join("jadeite.exe");
             if !jadeite_exe.exists() {
                 return Err(LaunchError::JadeiteMissing(jadeite_exe));
             }
-            Command::new(&proton_bin)
-                .arg("run")
-                .arg(&jadeite_exe)
-                .arg(&exe_path)
-                .env("STEAM_COMPAT_DATA_PATH", &compat_data)
-                .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")
-                .status()
-                .map_err(LaunchError::Spawn)?;
+            format!(
+                "{} run {} {}",
+                proton_bin.display(),
+                jadeite_exe.display(),
+                exe_path.display()
+            )
         } else {
-            Command::new(&proton_bin)
-                .arg("run")
-                .arg(&exe_path)
-                .env("STEAM_COMPAT_DATA_PATH", &compat_data)
-                .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")
-                .status()
-                .map_err(LaunchError::Spawn)?;
-        }
+            format!("{} run {}", proton_bin.display(), exe_path.display())
+        };
+
+        Command::new("sh")
+            .arg("-c")
+            .arg(&command_str)
+            .env("STEAM_COMPAT_DATA_PATH", &compat_data)
+            .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")
+            .status()
+            .map_err(LaunchError::Spawn)?;
 
         Ok(())
     }
