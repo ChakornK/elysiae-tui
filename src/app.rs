@@ -236,7 +236,8 @@ impl App {
                 dl.status_label = Some("Fetching manifest...".to_owned());
             }
             SophonProgress::InstallingPlugins { current_plugin, .. } => {
-                dl.status_label = Some(format!("Plugin: {}", current_plugin));
+                dl.status_label = Some(current_plugin);
+                dl.download_progress = None;
             }
             SophonProgress::DownloadingPlugin {
                 name,

@@ -96,16 +96,25 @@ impl ComponentManager {
         }
         drop(file);
 
-        let _ = tx.try_send(ComponentProgress::Extracting);
+        // Flush channel before sending extracting state
+        let _ = tx.send(ComponentProgress::Extracting).await;
 
         // Create dest dir for extraction
         std::fs::create_dir_all(&dest_dir)?;
 
-        let extract_result = if name == "proton" {
-            extract_tar_gz(&archive_path, &dest_dir)
-        } else {
-            extract_zip(&archive_path, &dest_dir)
-        };
+        // Run extraction on a blocking thread to avoid stalling the async runtime
+        let archive_clone = archive_path.clone();
+        let dest_clone = dest_dir.clone();
+        let extract_name = name.to_owned();
+        let extract_result = tokio::task::spawn_blocking(move || {
+            if extract_name == "proton" {
+                extract_tar_gz(&archive_clone, &dest_clone)
+            } else {
+                extract_zip(&archive_clone, &dest_clone)
+            }
+        })
+        .await
+        .map_err(|e| ComponentError::Other(format!("extraction task failed: {e}")))?;
 
         // On extraction failure, clean up dest dir so future installs aren't blocked
         if let Err(e) = extract_result {

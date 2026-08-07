@@ -295,7 +295,15 @@ async fn install_component_with_progress(
                     })
                     .await;
             }
-            ComponentProgress::Extracting => {}
+            ComponentProgress::Extracting => {
+                // Show 100% download bar + "Extracting..." status
+                let _ = tx
+                    .send(SophonProgress::InstallingPlugins {
+                        current_plugin: "Extracting...".to_owned(),
+                        total_plugins: 1,
+                    })
+                    .await;
+            }
             ComponentProgress::Finished { .. } => {}
             ComponentProgress::Error { message } => {
                 return Err(format!("{}: {}", status, message));
