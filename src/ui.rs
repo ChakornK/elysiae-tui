@@ -414,7 +414,10 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     let mut y = inner.y;
 
     // Header: "Installing <game name>"
-    let header_text = format!("Installing {}", game.display_name());
+    let header_text = dl
+        .header_override
+        .clone()
+        .unwrap_or_else(|| format!("Installing {}", game.display_name()));
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             header_text,

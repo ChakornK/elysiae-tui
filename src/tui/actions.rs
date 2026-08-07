@@ -242,8 +242,11 @@ async fn install_component_with_progress(
     status_msg: &str,
     tx: &Sender<SophonProgress>,
 ) -> Result<(), String> {
+    // Set the progress overlay header
     let _ = tx
-        .send(SophonProgress::FetchingManifest)
+        .send(SophonProgress::Warning {
+            message: status_msg.to_owned(),
+        })
         .await;
 
     let mgr = ComponentManager::new(client.clone(), data_dir.to_path_buf());

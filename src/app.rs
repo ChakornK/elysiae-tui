@@ -33,6 +33,8 @@ pub struct ActiveDownload {
     pub status_label: Option<String>,
     /// When true, completion triggers a game launch instead of state update.
     pub launch_on_complete: bool,
+    /// Overrides the progress overlay header (e.g. "Installing Proton").
+    pub header_override: Option<String>,
 }
 
 /// Download byte progress.
@@ -114,6 +116,7 @@ impl App {
             check_progress: None,
             status_label: Some("Fetching manifest...".to_owned()),
             launch_on_complete: false,
+            header_override: None,
         });
     }
 
@@ -247,6 +250,9 @@ impl App {
                     speed_bps: 0.0,
                     eta_seconds: 0.0,
                 });
+            }
+            SophonProgress::Warning { message } => {
+                dl.header_override = Some(message);
             }
             _ => {}
         }
