@@ -135,6 +135,7 @@ pub fn launch_game(
     app.launch_log.clear();
     app.launch_log_scroll = 0;
     app.game_running = true;
+    app.launch_log_game = Some(game);
 
     if let Err(e) = launcher.launch(game, path, log_tx.clone()) {
         app.game_running = false;

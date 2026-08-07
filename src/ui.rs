@@ -100,7 +100,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
             draw_main_panel(frame, app, outer[1]);
             if app.download.is_some() {
                 draw_progress_overlay(frame, app, outer[1]);
-            } else if app.game_running && !app.launch_log.is_empty() {
+            } else if app.game_running
+                && !app.launch_log.is_empty()
+                && app.launch_log_game == Some(app.selected_game())
+            {
                 draw_launch_log(frame, app, outer[1]);
             }
         }
@@ -605,10 +608,9 @@ fn draw_launch_log(frame: &mut Frame, app: &App, area: Rect) {
     let inner = shrink(overlay_rect, 2, 1);
 
     // Header
-    let header = format!("Game Log ({} lines)", app.launch_log.len());
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            header,
+            "Game Log",
             Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
         ))),
         Rect::new(inner.x, inner.y, inner.width, 1),

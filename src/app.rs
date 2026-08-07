@@ -72,6 +72,8 @@ pub struct App {
     pub launch_log_scroll: usize,
     /// Whether a game is currently running
     pub game_running: bool,
+    /// Which game the log belongs to
+    pub launch_log_game: Option<GameId>,
 }
 
 impl App {
@@ -93,6 +95,7 @@ impl App {
             launch_log: Vec::new(),
             launch_log_scroll: 0,
             game_running: false,
+            launch_log_game: None,
         }
     }
 
