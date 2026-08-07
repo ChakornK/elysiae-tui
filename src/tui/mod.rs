@@ -15,7 +15,7 @@ use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
-use crate::app::{App, GameStatus};
+use crate::app::App;
 use crate::backgrounds::Backgrounds;
 use crate::config::Config;
 use crate::game::GameId;
