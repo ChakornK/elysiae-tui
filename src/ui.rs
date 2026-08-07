@@ -673,7 +673,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     let btn_island_w = btn_content_w + 4;
     let btn_island_h = 3u16;
 
-    // Disabled when another game is downloading and this action would start a new download
+    // Disabled when a download is active and this button can't act
     let btn_disabled = if let Some(ref dl) = app.download {
         let game = app.selected_game();
         let installed = app
@@ -686,7 +686,9 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
             .get(&game)
             .and_then(|s| s.update_info.as_ref())
             .is_some_and(|i| i.update_available);
-        dl.game_id != game && !(installed && !has_update)
+        // Disabled if: downloading another game (and not launchable), OR
+        // waiting for components before launch (launch_on_complete)
+        (dl.game_id != game && !(installed && !has_update)) || dl.launch_on_complete
     } else {
         false
     };
