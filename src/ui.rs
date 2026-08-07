@@ -34,6 +34,23 @@ use palette::*;
 
 /// Renders the full TUI frame based on current application state.
 pub fn draw(frame: &mut Frame, app: &App) {
+    let area = frame.area();
+
+    // Bail out if terminal is too small to render
+    if area.width < 40 || area.height < 10 {
+        let msg = "Terminal too small";
+        let x = area.width.saturating_sub(msg.len() as u16) / 2;
+        let y = area.height / 2;
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                msg,
+                Style::default().fg(TEXT_MUTED),
+            ))),
+            Rect::new(x, y, msg.len() as u16, 1),
+        );
+        return;
+    }
+
     // Render background image across the full terminal area
     if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
         frame.render_widget(bg, frame.area());
