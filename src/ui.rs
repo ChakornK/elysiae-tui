@@ -130,15 +130,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
         draw_help_overlay(frame, area);
     }
 
-    if app.show_cancel_confirm {
+    if let Some(ref dialog) = app.dialog {
         darken_full_window(frame);
-        draw_modal(
-            frame,
-            outer[1],
-            "Confirm",
-            "Cancel download? (y/n)",
-            WARNING,
-        );
+        draw_confirm_dialog(frame, area, dialog);
     }
 }
 
@@ -205,6 +199,55 @@ fn draw_modal(frame: &mut Frame, area: Rect, title: &str, message: &str, color: 
     )));
 
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Draws a confirm dialog with selectable Yes/No buttons.
+fn draw_confirm_dialog(frame: &mut Frame, area: Rect, dialog: &crate::app::ConfirmDialog) {
+    let msg_w = UnicodeWidthStr::width(dialog.message.as_str()).max(24) as u16;
+    let box_w = (msg_w + 6).min(area.width.saturating_sub(4));
+    let box_h = 7u16.min(area.height.saturating_sub(2));
+    let box_rect = Rect::new(
+        area.x + (area.width.saturating_sub(box_w)) / 2,
+        area.y + (area.height.saturating_sub(box_h)) / 2,
+        box_w,
+        box_h,
+    );
+
+    // Background
+    let bg = ratatui::widgets::Block::default()
+        .style(Style::default().bg(CONTAINER_BG));
+    frame.render_widget(bg, box_rect);
+
+    let inner = Rect::new(box_rect.x + 2, box_rect.y + 1, box_rect.width.saturating_sub(4), box_rect.height.saturating_sub(2));
+
+    // Title
+    let title_line = Line::from(Span::styled(&dialog.title, Style::default().fg(WARNING).add_modifier(Modifier::BOLD)));
+    frame.render_widget(Paragraph::new(title_line), Rect::new(inner.x, inner.y, inner.width, 1));
+
+    // Message
+    let msg_line = Line::from(Span::styled(&dialog.message, Style::default().fg(TEXT)));
+    frame.render_widget(Paragraph::new(msg_line), Rect::new(inner.x, inner.y + 2, inner.width, 1));
+
+    // Buttons row
+    let btn_y = inner.y + 4;
+    if btn_y < box_rect.bottom() {
+        let yes_style = if dialog.selected == 0 {
+            Style::default().fg(Color::Rgb(10, 10, 15)).bg(ACCENT).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_MUTED)
+        };
+        let no_style = if dialog.selected == 1 {
+            Style::default().fg(Color::Rgb(10, 10, 15)).bg(ACCENT).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_MUTED)
+        };
+
+        let yes_btn = Span::styled("  Yes (y)  ", yes_style);
+        let spacer = Span::raw("   ");
+        let no_btn = Span::styled("  No (esc)  ", no_style);
+        let btn_line = Line::from(vec![yes_btn, spacer, no_btn]);
+        frame.render_widget(Paragraph::new(btn_line), Rect::new(inner.x, btn_y, inner.width, 1));
+    }
 }
 
 /// Draws a centered help overlay listing key bindings.

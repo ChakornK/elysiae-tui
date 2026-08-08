@@ -203,15 +203,34 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
 
-            if app.show_resume_prompt {
+            // Confirm dialog: arrow keys move selection, Enter confirms, Esc dismisses
+            if app.dialog.is_some() {
+                use crate::app::DialogKind;
                 match key.code {
+                    crossterm::event::KeyCode::Left => {
+                        if let Some(ref mut d) = app.dialog { d.select_left(); }
+                    }
+                    crossterm::event::KeyCode::Right => {
+                        if let Some(ref mut d) = app.dialog { d.select_right(); }
+                    }
                     crossterm::event::KeyCode::Char('y') => {
-                        app.show_resume_prompt = false;
-                        actions::resume_download(&mut app, &client, &progress_tx);
+                        if let Some(ref mut d) = app.dialog { d.selected = 0; }
                     }
-                    _ => {
-                        app.show_resume_prompt = false;
+                    crossterm::event::KeyCode::Enter => {
+                        let dialog = app.dialog.take().unwrap();
+                        if dialog.confirmed() {
+                            match dialog.kind {
+                                DialogKind::CancelDownload => app.finish_download(),
+                                DialogKind::ResumeDownload => {
+                                    actions::resume_download(&mut app, &client, &progress_tx);
+                                }
+                            }
+                        }
                     }
+                    crossterm::event::KeyCode::Esc | crossterm::event::KeyCode::Char('n') => {
+                        app.dialog = None;
+                    }
+                    _ => {}
                 }
                 continue;
             }
@@ -219,15 +238,6 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             // Any key dismisses help overlay
             if app.show_help {
                 app.show_help = false;
-                continue;
-            }
-
-            // Cancel confirmation: y confirms, anything else dismisses
-            if app.show_cancel_confirm {
-                if key.code == crossterm::event::KeyCode::Char('y') {
-                    app.finish_download();
-                }
-                app.show_cancel_confirm = false;
                 continue;
             }
 
@@ -382,7 +392,7 @@ fn check_resume_state(app: &mut App) {
     for game in GameId::ALL {
         let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
         if state_path.exists() {
-            app.show_resume_prompt = true;
+            app.dialog = Some(crate::app::ConfirmDialog::resume_download(game.display_name()));
             app.active_game = game;
             return;
         }

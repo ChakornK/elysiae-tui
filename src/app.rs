@@ -54,6 +54,55 @@ pub struct FilePhase {
     pub total: u64,
 }
 
+/// A confirmation dialog with selectable Yes/No buttons.
+#[derive(Debug, Clone)]
+pub struct ConfirmDialog {
+    pub title: String,
+    pub message: String,
+    /// 0 = Yes (left), 1 = No (right)
+    pub selected: usize,
+    pub kind: DialogKind,
+}
+
+/// Identifies which dialog is active so the handler knows what to do on confirm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialogKind {
+    CancelDownload,
+    ResumeDownload,
+}
+
+impl ConfirmDialog {
+    pub fn cancel_download() -> Self {
+        Self {
+            title: "Cancel Download".to_string(),
+            message: "Cancel the active download?".to_string(),
+            selected: 1, // default to "No" for destructive action
+            kind: DialogKind::CancelDownload,
+        }
+    }
+
+    pub fn resume_download(game_name: &str) -> Self {
+        Self {
+            title: "Resume Download".to_string(),
+            message: format!("Interrupted download found for {game_name}. Resume?"),
+            selected: 0, // default to "Yes" for non-destructive action
+            kind: DialogKind::ResumeDownload,
+        }
+    }
+
+    pub fn select_left(&mut self) {
+        self.selected = 0;
+    }
+
+    pub fn select_right(&mut self) {
+        self.selected = 1;
+    }
+
+    pub fn confirmed(&self) -> bool {
+        self.selected == 0
+    }
+}
+
 /// Central application state for the TUI.
 pub struct App {
     pub active_game: GameId,
@@ -65,9 +114,8 @@ pub struct App {
     pub game_list_index: usize,
     pub status_message: Option<String>,
     pub error_message: Option<String>,
-    pub show_resume_prompt: bool,
+    pub dialog: Option<ConfirmDialog>,
     pub show_help: bool,
-    pub show_cancel_confirm: bool,
     pub backgrounds: HashMap<GameId, QuadrantImage>,
     pub ready_to_launch: bool,
     /// Game launch log lines (ring buffer, max 1000)
@@ -93,9 +141,8 @@ impl App {
             game_list_index: 0,
             status_message: None,
             error_message: None,
-            show_resume_prompt: false,
+            dialog: None,
             show_help: false,
-            show_cancel_confirm: false,
             backgrounds: HashMap::new(),
             ready_to_launch: false,
             launch_log: VecDeque::new(),

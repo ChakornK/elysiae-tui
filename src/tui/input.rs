@@ -50,7 +50,7 @@ async fn handle_main(
                 return Ok(());
             }
             KeyCode::Char('c') => {
-                app.show_cancel_confirm = true;
+                app.dialog = Some(crate::app::ConfirmDialog::cancel_download());
                 return Ok(());
             }
             _ => {}
