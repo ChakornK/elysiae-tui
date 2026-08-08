@@ -254,12 +254,15 @@ fn spawn_operation(
             if !msg.to_lowercase().contains("cancel") {
                 let _ = tx.send(SophonProgress::Error { message: msg }).await;
             }
-        } else if matches!(op, Op::Download | Op::Update)
-            && let Err(e) = crate::postinstall::run_post_install(&client, std::path::Path::new(&path), game.as_str(), tx.clone()).await
-        {
-            tracing::warn!("post-install failed: {e}");
+            let _ = tx.send(SophonProgress::Finished).await;
+        } else {
+            if matches!(op, Op::Download | Op::Update)
+                && let Err(e) = crate::postinstall::run_post_install(&client, std::path::Path::new(&path), game.as_str(), tx.clone()).await
+            {
+                tracing::warn!("post-install failed: {e}");
+            }
+            let _ = tx.send(SophonProgress::Finished).await;
         }
-        let _ = tx.send(SophonProgress::Finished).await;
     });
 }
 
@@ -428,6 +431,13 @@ fn default_install_path(game: GameId) -> PathBuf {
 
 /// Removes a game's installation directory and clears associated state.
 pub fn uninstall_game(app: &mut App, game: GameId) -> Result<(), String> {
+    // Prevent uninstall while a download is targeting this game
+    if let Some(ref dl) = app.download {
+        if dl.game_id == game {
+            return Err("cannot uninstall while a download is active for this game".to_owned());
+        }
+    }
+
     let gc = app.config.games.get(&game);
     let path = gc.and_then(|c| c.install_path.as_ref())
         .ok_or("no install path configured")?
