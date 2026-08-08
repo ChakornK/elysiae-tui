@@ -118,8 +118,6 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         let _ = update_tx.send(results);
     });
 
-    check_resume_state(&mut app);
-
     // Main event loop — TUI is interactive immediately
     loop {
         if *shutdown_rx.borrow() {
@@ -214,16 +212,16 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(ref mut d) = app.dialog { d.select_right(); }
                     }
                     crossterm::event::KeyCode::Char('y') => {
-                        if let Some(ref mut d) = app.dialog { d.selected = 0; }
+                        let dialog = app.dialog.take().unwrap();
+                        match dialog.kind {
+                            DialogKind::CancelDownload => app.finish_download(),
+                        }
                     }
                     crossterm::event::KeyCode::Enter => {
                         let dialog = app.dialog.take().unwrap();
                         if dialog.confirmed() {
                             match dialog.kind {
                                 DialogKind::CancelDownload => app.finish_download(),
-                                DialogKind::ResumeDownload => {
-                                    actions::resume_download(&mut app, &client, &progress_tx);
-                                }
                             }
                         }
                     }
@@ -384,17 +382,4 @@ fn quadrant_cache_dir() -> std::path::PathBuf {
         .unwrap_or_else(|| crate::config::fallback_home_join(".cache"))
         .join("elysiae-tui")
         .join("quadrant")
-}
-
-/// Checks all game directories for resume state files.
-fn check_resume_state(app: &mut App) {
-    let data_dir = crate::config::app_data_dir();
-    for game in GameId::ALL {
-        let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
-        if state_path.exists() {
-            app.dialog = Some(crate::app::ConfirmDialog::resume_download(game.display_name()));
-            app.active_game = game;
-            return;
-        }
-    }
 }

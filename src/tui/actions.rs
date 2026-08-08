@@ -139,18 +139,6 @@ pub fn start_verify(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
     }
 }
 
-/// Resumes an interrupted download using irmin's saved state.
-pub fn resume_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
-    let game = app.active_game;
-    let gc = app.config.game_config(game).clone();
-    if let Some(ref path) = gc.install_path {
-        let handle = DownloadHandle::new();
-        app.start_download(game, handle.clone(), "Downloading...");
-        // Resume uses the same download function; irmin detects the state file automatically
-        spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Download);
-    }
-}
-
 /// Leaves the TUI, launches the game, then re-enters the TUI.
 pub fn launch_game(
     app: &mut App,

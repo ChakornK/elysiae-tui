@@ -68,7 +68,6 @@ pub struct ConfirmDialog {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DialogKind {
     CancelDownload,
-    ResumeDownload,
 }
 
 impl ConfirmDialog {
@@ -78,15 +77,6 @@ impl ConfirmDialog {
             message: "Cancel the active download?".to_string(),
             selected: 1, // default to "No"
             kind: DialogKind::CancelDownload,
-        }
-    }
-
-    pub fn resume_download(game_name: &str) -> Self {
-        Self {
-            title: "Resume Download".to_string(),
-            message: format!("Interrupted download found for {game_name}. Resume?"),
-            selected: 1, // default to "No"
-            kind: DialogKind::ResumeDownload,
         }
     }
 
