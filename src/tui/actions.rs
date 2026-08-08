@@ -70,8 +70,12 @@ pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
             let ops = Operations::new(client);
             let result = ops.apply_preinstall(&preinstall_tag, &path_str, &handle, tx.clone()).await;
             if let Err(e) = result {
-                let _ = tx.send(SophonProgress::Error { message: e.to_string() }).await;
+                let msg = e.to_string();
+                if !msg.to_lowercase().contains("cancel") {
+                    let _ = tx.send(SophonProgress::Error { message: msg }).await;
+                }
             }
+            let _ = tx.send(SophonProgress::Finished).await;
         });
     }
 }
@@ -210,8 +214,12 @@ fn spawn_operation(
             Op::Verify => ops.verify(game, &vo_lang, &path, tx.clone()).await,
         };
         if let Err(e) = result {
-            let _ = tx.send(SophonProgress::Error { message: e.to_string() }).await;
+            let msg = e.to_string();
+            if !msg.to_lowercase().contains("cancel") {
+                let _ = tx.send(SophonProgress::Error { message: msg }).await;
+            }
         }
+        let _ = tx.send(SophonProgress::Finished).await;
     });
 }
 
