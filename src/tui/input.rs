@@ -187,12 +187,11 @@ fn settings_move_cursor(app: &mut App, direction: i32) {
     if items.is_empty() { return; }
     let len = items.len();
     let mut pos = app.settings.cursor as i32;
-    loop {
+    for _ in 0..len {
         pos += direction;
         if pos < 0 { pos = len as i32 - 1; }
         if pos >= len as i32 { pos = 0; }
         if items[pos as usize].0 { break; }
-        // Safety: at least one selectable item always exists (components)
     }
     app.settings.cursor = pos as usize;
 }
