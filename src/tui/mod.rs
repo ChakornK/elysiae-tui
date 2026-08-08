@@ -208,15 +208,16 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
             // VO manager modal: handles input before dialog
             if app.vo_modal.is_some() {
+                let lang_count = crate::config::VALID_LANGS.len();
                 match key.code {
                     crossterm::event::KeyCode::Up => {
                         if let Some(ref mut m) = app.vo_modal {
-                            m.cursor = if m.cursor == 0 { 4 } else { m.cursor - 1 };
+                            m.cursor = if m.cursor == 0 { lang_count - 1 } else { m.cursor - 1 };
                         }
                     }
                     crossterm::event::KeyCode::Down => {
                         if let Some(ref mut m) = app.vo_modal {
-                            m.cursor = if m.cursor >= 4 { 0 } else { m.cursor + 1 };
+                            m.cursor = if m.cursor >= lang_count - 1 { 0 } else { m.cursor + 1 };
                         }
                     }
                     crossterm::event::KeyCode::Char(' ') => {
