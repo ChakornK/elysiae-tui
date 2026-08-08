@@ -17,6 +17,7 @@ mod postinstall;
 mod quadrant;
 mod signal;
 mod state;
+mod transition;
 mod tui;
 mod ui;
 
