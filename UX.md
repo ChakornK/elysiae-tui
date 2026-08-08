@@ -2,7 +2,7 @@
 
 ## Application State Machine
 
-The entire TUI is a single-screen application with modal overlays. Every interaction routes through one decision tree.
+The TUI is a single-screen application with modal overlays. Every interaction routes through one decision tree.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -11,22 +11,21 @@ The entire TUI is a single-screen application with modal overlays. Every interac
 │  ┌───────────┐                         ┌──────────────┐        │
 │  │  Startup  │────────────────────────▶│  Game List   │        │
 │  └───────────┘                         │  (main view) │        │
-│       │                                └──────────────┘        │
-│       │ has resume state?                 │  │  │  │           │
-│       ▼                                   │  │  │  │           │
-│  ┌───────────┐     dismiss                │  │  │  │           │
-│  │  Resume   │──────────────────────────▶─┘  │  │  │           │
-│  │  Prompt   │                               │  │  │           │
-│  └───────────┘                               │  │  │           │
-│                                              │  │  │           │
-│                    ┌─────────────────────────┘  │  │           │
-│                    │  's'                        │  │           │
-│                    ▼                             │  │           │
-│               ┌──────────┐    Esc               │  │           │
-│               │ Settings │──────────────────────▶  │           │
-│               └──────────┘                         │           │
-│                                                    │           │
-│                    ┌───────────────────────────────┘           │
+│                                        └──────────────┘        │
+│                                           │  │  │              │
+│                    ┌──────────────────────┘  │  │              │
+│                    │  's'                     │  │              │
+│                    ▼                          │  │              │
+│               ┌──────────┐    Esc            │  │              │
+│               │ Settings │───────────────────▶  │              │
+│               └──────────┘                      │              │
+│                    │ Enter on "Manage VOs"       │              │
+│                    ▼                             │              │
+│               ┌──────────┐    Esc               │              │
+│               │ VO Modal │───────────────────▶ Settings        │
+│               └──────────┘                      │              │
+│                                                 │              │
+│                    ┌────────────────────────────┘              │
 │                    │  '?'                                       │
 │                    ▼                                            │
 │               ┌──────────┐    any key                          │
@@ -35,10 +34,10 @@ The entire TUI is a single-screen application with modal overlays. Every interac
 │                                                                 │
 │  ─── Modal overlays (render on top, block input) ───           │
 │                                                                 │
-│  ┌────────────────┐  ┌────────────────┐  ┌────────────────┐   │
-│  │  Error Modal   │  │ Cancel Confirm │  │ Status Message │   │
-│  │  (any key)     │  │  (y/n)         │  │  (any key)     │   │
-│  └────────────────┘  └────────────────┘  └────────────────┘   │
+│  ┌──────────────────┐  ┌──────────────────┐                   │
+│  │  Error Modal     │  │  Confirm Dialog  │                   │
+│  │  (any key)       │  │  (←/→/Enter/Esc) │                   │
+│  └──────────────────┘  └──────────────────┘                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -79,21 +78,20 @@ fn game_state(app, game) -> GameState:
 ## Startup Sequence
 
 ```
-1. Load config from disk (or create default)
+1. Load config from disk (or create default; migrate vo_lang→vo_langs)
 2. Install panic hook (terminal restore)
 3. Enter raw mode + alternate screen (TerminalGuard)
 4. Initialize app state
 5. For each game with an install_path in config:
    a. Read .sophon_version tag
    b. Check if exe exists
-   c. Check if resume state file exists OR chunks/ dir exists
+   c. Check if app state file exists OR chunks/ dir exists
    d. Set: installed_tag (if exe exists), has_resume (if state exists but not installed)
 6. Load quadrant cache (instant)
 7. Spawn background tasks:
    a. Sync + encode background images
    b. Check for updates on all installed games
-8. Check for resume state → show prompt if found
-9. Enter main event loop
+8. Enter main event loop (game with has_resume shows "Resume" button)
 ```
 
 ## Main Event Loop (per tick, 33ms)
@@ -105,7 +103,11 @@ fn game_state(app, game) -> GameState:
 4. Poll terminal events:
    a. Resize → clear + reload cache
    b. Key press:
-      - Route through modal stack (error > status > resume prompt > help > cancel confirm)
+      - Download controls (p/c) bypass modal stack when download active
+      - VO modal (if open): Up/Down/Space/Enter/Esc
+      - Confirm dialog (if open): ←/→/Enter/y/Esc/n
+      - Error/status modals: any key dismisses
+      - Help overlay: any key dismisses
       - Then route to view handler (GameList or Settings)
 5. Drain progress channel → update_progress()
 6. Drain log channel → append to launch_log
@@ -119,16 +121,16 @@ fn game_state(app, game) -> GameState:
 ┌─────────────────────────────────────────────────────────┐
 │                  KEY PRESS                                │
 │                                                          │
-│  Is download active for ANY game?                        │
-│  ├── YES: intercept 'p' (pause/resume) and 'c' (cancel) │
-│  └── NO: fall through                                    │
+│  Download controls bypass all modals:                    │
+│  ├── 'p' (if download active) → pause/resume            │
+│  └── 'c' (if download active) → open cancel dialog      │
 │                                                          │
-│  Modal stack (checked first, consumes the key):          │
-│  ├── error_message → dismiss, continue                   │
-│  ├── status_message → dismiss, continue                  │
-│  ├── show_resume_prompt → y=resume, other=dismiss        │
-│  ├── show_help → any key dismisses                       │
-│  └── show_cancel_confirm → y=cancel dl, other=dismiss    │
+│  Modal stack (checked in order, consumes the key):       │
+│  ├── vo_modal → Up/Down/Space/Enter/Esc                  │
+│  ├── confirm dialog → ←/→/Enter/y/Esc/n                 │
+│  ├── error_message → any key dismisses                   │
+│  ├── status_message → any key dismisses                  │
+│  └── show_help → any key dismisses                       │
 │                                                          │
 │  View keys:                                              │
 │  ├── 'q' → quit                                          │
@@ -145,6 +147,95 @@ fn game_state(app, game) -> GameState:
 └─────────────────────────────────────────────────────────┘
 ```
 
+## Key Dispatch (Settings View)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                  KEY PRESS                                │
+│                                                          │
+│  ├── Up/Down → move cursor (skips headers)               │
+│  ├── Enter → activate selected item:                     │
+│  │   ├── "Manage VOs" → open VO modal                    │
+│  │   ├── "Uninstall game" → open confirm dialog          │
+│  │   ├── "Uninstall Proton" → open confirm dialog        │
+│  │   └── "Uninstall Jadeite" → open confirm dialog       │
+│  ├── Esc → return to Game List                           │
+│  └── other → ignored                                     │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Confirm Dialog
+
+```
+┌─ Cancel Download ────────────────────────┐
+│                                           │
+│  Cancel the active download?              │
+│                                           │
+│  [y] Yes      [esc] No                   │
+│                                           │
+└───────────────────────────────────────────┘
+
+Controls:
+  ←/→     move selection between Yes and No
+  Enter   activate selected button
+  y       immediately confirm (shortcut)
+  Esc/n   immediately dismiss
+
+Default selection: No (prevents accidental destructive action)
+```
+
+## VO Manager Modal
+
+```
+┌─ Manage Voice-Overs ──────────────────────┐
+│                                            │
+│  [x] English (en-us)                       │
+│  [x] Japanese (ja-jp)                      │
+│  [ ] Chinese Simplified (zh-cn)            │
+│  [ ] Chinese Traditional (zh-tw)           │
+│  [ ] Korean (ko-kr)                        │
+│                                            │
+│  [space] toggle  [enter] apply  [esc]      │
+└────────────────────────────────────────────┘
+
+Controls:
+  Up/Down   move cursor (wraps)
+  Space     toggle enabled/disabled on cursor row
+  Enter     apply changes (download new, remove old)
+  Esc       discard changes and close
+
+Rules:
+  - At least one language must remain enabled
+  - Toggling the last enabled language is a no-op
+  - On apply: config saves immediately, new langs trigger download
+```
+
+## Settings View Layout
+
+```
+┌─ Settings ─────────────────────────────────────────────┐
+│                                                         │
+│  ─── Genshin Impact ────────────────────────────────    │
+│    Manage VOs (2 enabled)              ← cursor here    │
+│    Uninstall game                                       │
+│                                                         │
+│  ─── Honkai: Star Rail ─────────────────────────────    │
+│    Manage VOs (1 enabled)                               │
+│    Uninstall game                                       │
+│                                                         │
+│  ─── Components ────────────────────────────────────    │
+│    Proton: GE-Proton9-22                                │
+│    Uninstall Proton                                     │
+│    Jadeite: 3.1.0                                       │
+│    Uninstall Jadeite                                    │
+│                                                         │
+│  [↑/↓] navigate  [enter] select  [esc] back            │
+└─────────────────────────────────────────────────────────┘
+
+Only installed games appear. Non-selectable rows (headers, component
+info) are skipped by cursor navigation. Uninstall items render red.
+```
+
 ## Download Lifecycle
 
 ```
@@ -153,7 +244,7 @@ User presses Enter on a NotInstalled/Resumable/UpdateAvailable game
     ▼
 start_download / start_resume / start_update
     │
-    ├── Set app.download = Some(ActiveDownload { game_id, handle, ... })
+    ├── Set app.download = Some(ActiveDownload { game_id, handle, op_label, ... })
     │
     ▼
 spawn_operation (tokio::spawn)
@@ -194,18 +285,15 @@ spawn_operation (tokio::spawn)
 User presses 'c' during active download
     │
     ▼
-show_cancel_confirm = true
+Confirm dialog opens (default: No selected)
     │
-    ├── UI renders "Cancel download? (y/n)" modal
-    │
-    ▼
-User presses 'y'
+    ├── User presses 'y' or selects Yes + Enter
     │
     ▼
 app.finish_download()
     │
     ├── handle.cancel() → irmin stops
-    ├── Check if state file exists on disk
+    ├── Check if state file exists on disk AND chunks/ dir exists AND exe missing
     │   ├── YES → gs.has_resume = true (button becomes "Resume")
     │   └── NO → gs.has_resume = false (button becomes "Get Game")
     ├── app.download = None
@@ -269,6 +357,41 @@ launch_game()
          Game output visible via Up/Down scroll
 ```
 
+## Uninstall Flow (from Settings)
+
+```
+User selects "Uninstall game" and presses Enter
+    │
+    ▼
+Confirm dialog opens: "Uninstall {game name}?"
+    │
+    ├── User confirms
+    │
+    ▼
+uninstall_game(game)
+    │
+    ├── safe_remove_dir_all(install_path)
+    ├── Remove state file
+    ├── Clear installed_tag, has_resume, update_info
+    ├── Clear install_path from config
+    └── Persist config atomically
+
+User selects "Uninstall Proton/Jadeite" and presses Enter
+    │
+    ▼
+Confirm dialog opens: "Uninstall {component}?"
+    │
+    ├── User confirms
+    │
+    ▼
+uninstall_component(name)
+    │
+    ├── Proton: remove proton/, proton-data/, proton.tag
+    ├── Jadeite: remove jadeite/, jadeite.tag
+    ├── Clear config.installed_components entry
+    └── Persist config atomically
+```
+
 ## Signal Handling
 
 ```
@@ -293,22 +416,23 @@ SIGINT (Ctrl+C) received
 | Disk full during download | Write fails, Error event sent, state file has progress up to last successful chunk |
 | Corrupt config.json | Preserved as `.corrupted-{ts}`, fresh default created |
 | Game process crashes | Exit code shown in log, `game_running` cleared on `__PROCESS_EXIT__` |
-| Two instances launched | Second instance fails to acquire lockfile, exits with message |
+| Uninstall fails (permissions) | Error modal shown with OS error message |
+| VO download fails | Error modal shown, previously-enabled languages remain |
 
-## Visual Layout
+## Visual Layout (Game List)
 
 ```
 ┌─ Terminal ────────────────────────────────────────────────┐
 │                                                           │
 │  ┌─ Tab Bar ──────────────────────────────────────────┐  │
-│  │  [bh3]  [genshin]  [starrail]  [zzz]              │  │
+│  │  [1] Honkai Impact 3rd  [2] Genshin Impact  ...   │  │
 │  └────────────────────────────────────────────────────┘  │
 │                                                           │
 │  ┌─ Background (quadrant-encoded image) ──────────────┐  │
 │  │                                                     │  │
 │  │   ┌─ Info Panel (semi-transparent) ─────────────┐  │  │
-│  │   │  Game Title                                  │  │  │
-│  │   │  Version: 6.7.0  (or "Not installed")       │  │  │
+│  │   │  Genshin Impact                              │  │  │
+│  │   │  Version: 6.7.0                              │  │  │
 │  │   │                                              │  │  │
 │  │   │  [Update available badge if applicable]      │  │  │
 │  │   └──────────────────────────────────────────────┘  │  │
@@ -316,29 +440,10 @@ SIGINT (Ctrl+C) received
 │  └─────────────────────────────────────────────────────┘  │
 │                                                           │
 │  ┌─ Action Bar ───────────────────────────────────────┐  │
-│  │  [⏎] Resume              [?] help  [q] quit       │  │
+│  │  [⏎] Launch              [?] help  [q] quit       │  │
 │  └────────────────────────────────────────────────────┘  │
 │                                                           │
 └───────────────────────────────────────────────────────────┘
-
-┌─ Download Overlay (when active) ──────────────────────────┐
-│                                                            │
-│  Downloading bh3                                           │
-│  ████████████████░░░░░░░░░░░░░  45.2%                     │
-│  1.2 GB / 2.7 GB  │  85.3 MB/s  │  ETA 18s               │
-│                                                            │
-│  [p] pause  [c] cancel                                     │
-│                                                            │
-└────────────────────────────────────────────────────────────┘
-
-┌─ Launch Log (when game running) ──────────────────────────┐
-│  bh3 output:                                               │
-│  > Proton 9.0-4                                            │
-│  > esync: up                                               │
-│  > ...                                                     │
-│                                                            │
-│  [↑/↓] scroll                                              │
-└────────────────────────────────────────────────────────────┘
 ```
 
 ## Data Flow Diagram
@@ -346,9 +451,9 @@ SIGINT (Ctrl+C) received
 ```
               ┌─────────────┐
               │   Config    │ ← persisted to disk (atomic write)
-              │  (JSON)     │
+              │  (JSON)     │ ← vo_langs: Vec<String> per game
               └──────┬──────┘
-                     │ load at startup
+                     │ load at startup (migrates vo_lang → vo_langs)
                      ▼
 ┌──────────┐    ┌─────────┐    ┌───────────────┐
 │ irmin    │◀───│   App   │───▶│  TUI Render   │
@@ -368,6 +473,33 @@ SIGINT (Ctrl+C) received
      │  (atomic write)  │ ← deleted on success
      └──────────────────┘
 ```
+
+## Config Schema
+
+```json
+{
+  "version": 1,
+  "selected_game": "hk4e",
+  "auto_update": true,
+  "auto_preload": true,
+  "games": {
+    "hk4e": {
+      "vo_langs": ["en-us", "ja-jp"],
+      "install_path": "/home/user/.local/share/elysiae-tui/games/hk4e"
+    },
+    "hkrpg": {
+      "vo_langs": ["en-us"],
+      "install_path": "/home/user/.local/share/elysiae-tui/games/hkrpg"
+    }
+  },
+  "installed_components": {
+    "proton": "GE-Proton9-22",
+    "jadeite": "3.1.0"
+  }
+}
+```
+
+Backward compatible: old configs with `"vo_lang": "en-us"` auto-migrate to `"vo_langs": ["en-us"]` on load.
 
 ## Session Lifecycle
 
@@ -391,9 +523,7 @@ SIGINT (Ctrl+C) received
 
 ┌─ Interrupted Session ───────────────────────────────────┐
 │ 1. State file found on disk for a game                  │
-│ 2. Startup prompt: "Interrupted download found. Resume?"│
-│ 3. 'y' → resumes from last checkpoint                   │
-│ 4. Dismiss → game shows "Resume" button permanently     │
-│    until user presses Enter (resumes) or deletes state  │
+│ 2. Game shows "Resume" button in the game list          │
+│ 3. User presses Enter → resumes from last checkpoint    │
 └─────────────────────────────────────────────────────────┘
 ```
