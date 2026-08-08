@@ -588,6 +588,7 @@ fn render_container(frame: &mut Frame, area: Rect, _bg_img: Option<&QuadrantImag
             }
             cell.set_char(' ');
             cell.set_fg(Color::Reset);
+            cell.set_style(Style::reset().bg(cell.bg));
         }
     }
 }
