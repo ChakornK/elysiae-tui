@@ -604,13 +604,32 @@ fn shrink(r: Rect, h: u16, v: u16) -> Rect {
 
 /// Renders a progress bar with dark text on the filled area and light text on unfilled.
 fn render_progress_bar(frame: &mut Frame, area: Rect, ratio: f64, label: &str, fill_color: Color) {
+    use unicode_width::UnicodeWidthChar;
+
     let width = area.width as usize;
     let filled = ((width as f64) * ratio.clamp(0.0, 1.0)).round() as u16;
 
-    // Center the label
-    let label_chars: Vec<char> = label.chars().collect();
-    let label_len = UnicodeWidthStr::width(label).min(width);
-    let label_start = (width.saturating_sub(label_len)) / 2;
+    // Build a column-indexed array of characters for the label
+    let label_display_width = UnicodeWidthStr::width(label).min(width);
+    let label_start = (width.saturating_sub(label_display_width)) / 2;
+
+    // Map display columns to characters
+    let mut col_chars = vec![' '; label_display_width];
+    let mut col = 0usize;
+    for ch in label.chars() {
+        let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if col + cw > label_display_width { break; }
+        if col < label_display_width {
+            col_chars[col] = ch;
+            // Fill remaining columns of wide chars with spaces (handled by terminal)
+            for i in 1..cw {
+                if col + i < label_display_width {
+                    col_chars[col + i] = ' ';
+                }
+            }
+        }
+        col += cw;
+    }
 
     let buf = frame.buffer_mut();
     for x in 0..area.width {
@@ -618,10 +637,9 @@ fn render_progress_bar(frame: &mut Frame, area: Rect, ratio: f64, label: &str, f
         let cell = &mut buf[(abs_x, area.y)];
         let in_filled = x < filled;
 
-        // Determine which label char (if any) is at this position
         let pos = x as usize;
-        let ch = if pos >= label_start && pos < label_start + label_len {
-            label_chars[pos - label_start]
+        let ch = if pos >= label_start && pos < label_start + label_display_width {
+            col_chars[pos - label_start]
         } else {
             ' '
         };
@@ -797,7 +815,7 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled(eta, Style::default().fg(TEXT_MUTED)),
             ])
         } else if dp.downloaded_bytes > 0 && dp.total_bytes > 0 {
-            let remaining = dp.total_bytes - dp.downloaded_bytes;
+            let remaining = dp.total_bytes.saturating_sub(dp.downloaded_bytes);
             Line::from(Span::styled(
                 format!("{} remaining", format_bytes(remaining)),
                 Style::default().fg(TEXT_MUTED),
