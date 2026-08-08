@@ -9,7 +9,7 @@ use rustc_hash::FxHashMap;
 use tokio::sync::mpsc::Sender;
 
 use crate::game::GameId;
-use crate::state::{DownloadState, DownloadType, make_state_saver};
+use crate::state::{DownloadState, DownloadType, StateSaverFn, make_state_saver};
 
 /// Wraps irmin's game installer, routing progress through a channel and
 /// persisting download state for resume.
@@ -212,7 +212,7 @@ impl Operations {
         output_path: &str,
         current_manifest_hash: &str,
         state_path: &Path,
-    ) -> (ResumeContext, Arc<dyn Fn(&HashMap<String, u64>) + Send + Sync>) {
+    ) -> (ResumeContext, StateSaverFn) {
         let prev_state = DownloadState::load(state_path);
 
         let (prev_chunks, prev_hash) = match prev_state {
