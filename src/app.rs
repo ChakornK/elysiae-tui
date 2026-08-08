@@ -290,17 +290,19 @@ impl App {
     pub fn finish_download(&mut self) {
         if let Some(ref dl) = self.download {
             dl.handle.cancel();
-            if let Some(gs) = self.games.get_mut(&dl.game_id) {
-                gs.has_resume = true;
+            let game_id = dl.game_id;
+            if let Some(gs) = self.games.get_mut(&game_id) {
+                // Check if a state file exists (written by the state saver during download)
+                let data_dir = crate::config::app_data_dir();
+                let state_path = crate::state::DownloadState::state_path(&data_dir, game_id.as_str());
+                gs.has_resume = state_path.exists();
             }
         }
         self.download = None;
         self.ready_to_launch = false;
 
         // Remove partial component archives so next install starts clean
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-            .join("elysiae-tui");
+        let data_dir = crate::config::app_data_dir();
         let _ = std::fs::remove_file(data_dir.join("proton.archive"));
         let _ = std::fs::remove_file(data_dir.join("jadeite.archive"));
     }

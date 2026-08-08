@@ -52,6 +52,40 @@ pub fn start_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
     }
 }
 
+/// Resumes an interrupted download by loading persisted state and dispatching
+/// to the correct operation type (Fresh/Update/Preinstall).
+pub fn start_resume(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
+    let game = app.active_game;
+    let gc = app.config.game_config(game).clone();
+    let path = match gc.install_path {
+        Some(ref p) => p.clone(),
+        None => {
+            let default = crate::config::app_data_dir().join(game.as_str());
+            let _ = std::fs::create_dir_all(&default);
+            app.config.game_config(game).install_path = Some(default.clone());
+            let _ = app.config.save();
+            default
+        }
+    };
+
+    // Load persisted state to determine the operation type
+    let data_dir = crate::config::app_data_dir();
+    let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
+    let dl_type = crate::state::DownloadState::load(&state_path)
+        .map(|s| s.download_type)
+        .unwrap_or(crate::state::DownloadType::Fresh);
+
+    let op = match dl_type {
+        crate::state::DownloadType::Fresh => Op::Download,
+        crate::state::DownloadType::Update => Op::Update,
+        crate::state::DownloadType::Preinstall => Op::Preinstall,
+    };
+
+    let handle = DownloadHandle::new();
+    app.start_download(game, handle.clone());
+    spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), op);
+}
+
 /// Applies a previously downloaded preinstall patch.
 pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
     let game = app.active_game;
