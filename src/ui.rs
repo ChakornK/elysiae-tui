@@ -8,6 +8,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::app::{App, View};
 use crate::game::GameId;
 use crate::quadrant::QuadrantImage;
+use crate::transition::render_ripple_transition;
 
 /// Settings view item types.
 #[derive(Debug, Clone)]
@@ -137,8 +138,27 @@ pub fn draw(frame: &mut Frame, app: &App) {
         return;
     }
 
-    // Render background image across the full terminal area
-    if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
+    // Render background image (with ripple transition if active)
+    if let Some(ref transition) = app.bg_transition {
+        if let (Some(from_bg), Some(to_bg)) = (
+            app.backgrounds.get(&transition.from_game),
+            app.backgrounds.get(&app.selected_game()),
+        ) {
+            if from_bg.width == to_bg.width && from_bg.height == to_bg.height {
+                render_ripple_transition(
+                    from_bg,
+                    to_bg,
+                    transition.progress(),
+                    frame.area(),
+                    frame.buffer_mut(),
+                );
+            } else if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
+                frame.render_widget(bg, frame.area());
+            }
+        } else if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
+            frame.render_widget(bg, frame.area());
+        }
+    } else if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
         frame.render_widget(bg, frame.area());
     }
 
