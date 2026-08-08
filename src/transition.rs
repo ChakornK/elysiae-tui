@@ -49,7 +49,10 @@ pub fn render_ripple_transition(
     let h = from.height.min(area.height) as f32;
     let center_x = w / 2.0;
     let center_y = h / 2.0;
-    let max_dist = (center_x * center_x + center_y * center_y).sqrt();
+    // Cells are ~2x taller than wide; scale height to produce a circular ripple
+    const H_SCALE: f32 = 0.5;
+    let scaled_cx = center_x * H_SCALE;
+    let max_dist = (scaled_cx * scaled_cx + center_y * center_y).sqrt();
 
     // Overshoot so the fade band fully exits screen before progress=1.0
     let wavefront = progress * 1.3;
@@ -61,7 +64,7 @@ pub fn render_ripple_transition(
     for row in 0..rows {
         for col in 0..cols {
             let idx = (row as usize) * (from.width as usize) + (col as usize);
-            let dx = col as f32 - center_x;
+            let dx = (col as f32 - center_x) * H_SCALE;
             let dy = row as f32 - center_y;
             let norm_dist = (dx * dx + dy * dy).sqrt() / max_dist;
 
