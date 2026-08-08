@@ -118,7 +118,7 @@ async fn handle_main(
                 } else if has_update {
                     actions::start_update(app, client, progress_tx);
                 } else if installed {
-                    if !(app.game_running && app.launch_log_game == Some(game)) {
+                    if !app.game_running {
                         actions::prepare_and_launch(app, client, progress_tx);
                     }
                 } else {

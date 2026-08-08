@@ -235,8 +235,11 @@ impl App {
             .unwrap_or(GameId::ALL.len() - 1);
     }
 
-    /// Begins tracking a new download. Stays on the current view.
+    /// Begins tracking a new download. Cancels any existing download first.
     pub fn start_download(&mut self, game_id: GameId, handle: DownloadHandle, op_label: &'static str) {
+        if let Some(prev) = self.download.take() {
+            prev.handle.cancel();
+        }
         self.download = Some(ActiveDownload {
             game_id,
             handle,
