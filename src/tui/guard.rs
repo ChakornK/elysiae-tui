@@ -13,7 +13,10 @@ impl TerminalGuard {
     /// for the duration of TUI operation.
     pub fn new() -> io::Result<Self> {
         enable_raw_mode()?;
-        execute!(io::stdout(), EnterAlternateScreen)?;
+        if let Err(e) = execute!(io::stdout(), EnterAlternateScreen) {
+            let _ = disable_raw_mode();
+            return Err(e);
+        }
         Ok(Self)
     }
 }
