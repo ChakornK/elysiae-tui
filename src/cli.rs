@@ -71,7 +71,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
     let client = crate::http::build_client();
     match cmd {
         Commands::Download { game, lang, path, tag: _tag } => {
-            let ops = Operations::new(client.clone());
+            let ops = Operations::new(client.clone(), crate::config::app_data_dir());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
@@ -108,7 +108,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let ops = Operations::new(client.clone());
+            let ops = Operations::new(client.clone(), crate::config::app_data_dir());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
@@ -140,7 +140,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let ops = Operations::new(client.clone());
+            let ops = Operations::new(client.clone(), crate::config::app_data_dir());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
@@ -172,7 +172,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let ops = Operations::new(client.clone());
+            let ops = Operations::new(client.clone(), crate::config::app_data_dir());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
@@ -202,7 +202,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let ops = Operations::new(client.clone());
+            let ops = Operations::new(client.clone(), crate::config::app_data_dir());
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
             tokio::spawn(async move {
@@ -238,7 +238,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let ops = Operations::new(client.clone());
+            let ops = Operations::new(client.clone(), crate::config::app_data_dir());
 
             let path_str = install_path.to_string_lossy();
             let info = ops.check_update(game, &vo_lang, &path_str).await?;
@@ -254,14 +254,41 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             }
         }
         Commands::Resume { game } => {
-            let data_dir = dirs::data_dir()
-                .unwrap_or_else(|| dirs::home_dir().expect("HOME must be set").join(".local/share"))
-                .join("elysiae-tui");
+            let data_dir = crate::config::app_data_dir();
             let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
             let state = crate::state::DownloadState::load(&state_path)
                 .ok_or("no interrupted download found for this game")?;
-            println!("resuming {} download for {}", format!("{:?}", state.download_type).to_lowercase(), game.as_str());
-            // Full resume wiring comes in a separate task.
+            println!(
+                "resuming {:?} for {} from {}",
+                state.download_type,
+                game.as_str(),
+                state.output_path.display()
+            );
+
+            let ops = Operations::new(client.clone(), data_dir);
+            let handle = irmin::DownloadHandle::new();
+            let (tx, mut rx) = tokio::sync::mpsc::channel(64);
+            let output = state.output_path.to_string_lossy().to_string();
+
+            let result = tokio::select! {
+                r = async {
+                    match state.download_type {
+                        crate::state::DownloadType::Fresh => ops.download(game, &state.vo_lang, &output, &handle, tx).await,
+                        crate::state::DownloadType::Update => ops.update(game, &state.vo_lang, &output, &handle, tx).await,
+                        crate::state::DownloadType::Preinstall => ops.preinstall(game, &state.vo_lang, &output, &handle, tx).await,
+                    }
+                } => r,
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("\ninterrupted, progress saved");
+                    return Ok(());
+                }
+            };
+
+            // Drain remaining progress
+            while let Ok(p) = rx.try_recv() {
+                print_progress(&p);
+            }
+            result.map_err(|e| e.to_string())?;
         }
     }
     Ok(())

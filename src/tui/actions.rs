@@ -71,7 +71,7 @@ pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
                 let _ = tx.send(SophonProgress::Error { message: format!("invalid preinstall tag: {e}") }).await;
                 return;
             }
-            let ops = Operations::new(client.clone());
+            let ops = Operations::new(client.clone(), crate::config::app_data_dir());
             let result = ops.apply_preinstall(&preinstall_tag, &path_str, &handle, tx.clone()).await;
             if let Err(e) = result {
                 let msg = e.to_string();
@@ -214,7 +214,7 @@ fn spawn_operation(
             return;
         }
 
-        let ops = Operations::new(client.clone());
+        let ops = Operations::new(client.clone(), crate::config::app_data_dir());
         let result = match op {
             Op::Download => ops.download(game, &vo_lang, &path, &handle, tx.clone()).await,
             Op::Update => ops.update(game, &vo_lang, &path, &handle, tx.clone()).await,

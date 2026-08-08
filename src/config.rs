@@ -13,6 +13,13 @@ pub(crate) fn fallback_home_join(subpath: &str) -> PathBuf {
         .join(subpath)
 }
 
+/// Returns the application data directory (`{XDG_DATA_HOME}/elysiae-tui`).
+pub fn app_data_dir() -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| fallback_home_join(".local/share"))
+        .join("elysiae-tui")
+}
+
 pub const VALID_LANGS: &[&str] = &["en-us", "ja-jp", "zh-cn", "zh-tw", "ko-kr"];
 
 pub fn validate_vo_lang(lang: &str) -> Result<(), ConfigError> {

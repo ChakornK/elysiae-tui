@@ -107,7 +107,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
     tokio::spawn(async move {
-        let ops = Operations::new(update_client);
+        let ops = Operations::new(update_client, crate::config::app_data_dir());
         let mut results = HashMap::new();
         for (game, vo_lang, path) in update_configs {
             if let Ok(info) = ops.check_update(game, &vo_lang, &path).await {
