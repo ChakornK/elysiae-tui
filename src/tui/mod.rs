@@ -13,8 +13,8 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-
 use crate::app::App;
+use crate::signal;
 use crate::backgrounds::Backgrounds;
 use crate::config::Config;
 use crate::game::GameId;
@@ -31,6 +31,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut app = App::new(config);
     let client = crate::http::build_client();
+    let shutdown_rx = signal::spawn_signal_handler();
     let (progress_tx, mut progress_rx) = mpsc::channel::<SophonProgress>(128);
     let (log_tx, mut log_rx) = mpsc::channel::<String>(256);
     let mut term_size = crossterm::terminal::size().unwrap_or((80, 24));
@@ -120,6 +121,13 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     // Main event loop — TUI is interactive immediately
     loop {
+        if *shutdown_rx.borrow() {
+            if let Some(ref dl) = app.download {
+                dl.handle.cancel();
+            }
+            break;
+        }
+
         terminal.draw(|frame| ui::draw(frame, &app))?;
 
         // Receive lazily-encoded backgrounds when ready
