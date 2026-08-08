@@ -15,7 +15,7 @@ pub struct BgTransition {
 }
 
 impl BgTransition {
-    const DEFAULT_DURATION: Duration = Duration::from_millis(400);
+    const DEFAULT_DURATION: Duration = Duration::from_millis(300);
 
     pub fn new(from_game: GameId) -> Self {
         Self {
@@ -47,16 +47,16 @@ pub fn render_ripple_transition(
 ) {
     let w = from.width.min(area.width) as f32;
     let h = from.height.min(area.height) as f32;
-    let center_x = w / 2.0;
-    let center_y = h / 2.0;
+    let origin_x = w * 0.5;
+    let origin_y = h * 0.5;
     // Cells are ~2x taller than wide; scale height to produce a circular ripple
     const H_SCALE: f32 = 0.5;
-    let scaled_cx = center_x * H_SCALE;
-    let max_dist = (scaled_cx * scaled_cx + center_y * center_y).sqrt();
+    let scaled_ox = origin_x * H_SCALE;
+    let max_dist = (scaled_ox * scaled_ox + h * h).sqrt();
 
     // Overshoot so the fade band fully exits screen before progress=1.0
     let wavefront = progress * 1.3;
-    const FADE_WIDTH: f32 = 0.15;
+    const FADE_WIDTH: f32 = 0.7;
 
     let cols = from.width.min(area.width);
     let rows = from.height.min(area.height);
@@ -64,8 +64,8 @@ pub fn render_ripple_transition(
     for row in 0..rows {
         for col in 0..cols {
             let idx = (row as usize) * (from.width as usize) + (col as usize);
-            let dx = (col as f32 - center_x) * H_SCALE;
-            let dy = row as f32 - center_y;
+            let dx = (col as f32 - origin_x) * H_SCALE;
+            let dy = row as f32 - origin_y;
             let norm_dist = (dx * dx + dy * dy).sqrt() / max_dist;
 
             let buf_cell = &mut buf[(area.x + col, area.y + row)];
