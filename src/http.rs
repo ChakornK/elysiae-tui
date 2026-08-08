@@ -28,13 +28,35 @@ pub fn build_client() -> Client {
         .expect("failed to build HTTP client")
 }
 
+/// Max response body size for JSON endpoints (16 MB).
+const MAX_JSON_BODY: usize = 16 * 1024 * 1024;
+
 /// Fetches JSON from a URL, returning an error on non-2xx status.
+/// Rejects responses larger than 16 MB to prevent OOM.
 pub async fn fetch_json<T: serde::de::DeserializeOwned>(
     client: &Client,
     url: &str,
 ) -> Result<T, HttpError> {
     let resp = client.get(url).send().await?.error_for_status()?;
-    Ok(resp.json().await?)
+    if let Some(len) = resp.content_length() {
+        if len > MAX_JSON_BODY as u64 {
+            return Err(HttpError::Status {
+                code: 0,
+                url: format!("response too large ({len} bytes): {url}"),
+            });
+        }
+    }
+    let bytes = resp.bytes().await?;
+    if bytes.len() > MAX_JSON_BODY {
+        return Err(HttpError::Status {
+            code: 0,
+            url: format!("response too large ({} bytes): {url}", bytes.len()),
+        });
+    }
+    serde_json::from_slice(&bytes).map_err(|e| HttpError::Status {
+        code: 0,
+        url: format!("JSON parse error: {e}"),
+    })
 }
 
 /// Starts a streaming download, returning an error on non-2xx status.
