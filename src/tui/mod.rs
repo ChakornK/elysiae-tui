@@ -1,4 +1,5 @@
 mod actions;
+pub mod guard;
 mod input;
 
 use std::collections::HashMap;

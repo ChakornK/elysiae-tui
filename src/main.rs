@@ -1,12 +1,18 @@
 mod app;
+mod atomic;
 mod backgrounds;
 mod cli;
 mod components;
 mod config;
+mod disk;
 mod game;
+mod http;
 mod launcher;
 mod operations;
+mod postinstall;
 mod quadrant;
+mod signal;
+mod state;
 mod tui;
 mod ui;
 

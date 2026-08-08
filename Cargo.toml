@@ -5,18 +5,35 @@ edition = "2024"
 rust-version = "1.92.0"
 
 [dependencies]
-irmin = { git = "https://github.com/elysiae-project/irmin" }
+irmin = { git = "https://github.com/elysiae-project/irmin", rev = "165462e" }
 ratatui = "0.30.2"
 image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg"] }
 crossterm = "0.29.0"
-tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "process", "io-util"] }
+tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "process", "io-util", "signal"] }
 reqwest = { version = "0.13.4", features = ["stream", "json"] }
 clap = { version = "4.6", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dirs = "6"
 thiserror = "2"
+unicode-width = "0.2"
+fs2 = "0.4"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+md-5 = "0.10"
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
+tikv-jemalloc-ctl = "0.6"
 
 [dev-dependencies]
 proptest = "1.11"
 tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
