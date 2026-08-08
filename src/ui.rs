@@ -3,6 +3,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, View};
 use crate::game::GameId;
@@ -33,8 +34,6 @@ mod palette {
 use palette::*;
 
 // Layout constants
-const CONTAINER_PAD_H: u16 = 2;
-const CONTAINER_PAD_V: u16 = 1;
 const EDGE_PAD_H: u16 = 2;
 const EDGE_PAD_V: u16 = 1;
 const MAIN_PANEL_MAX_WIDTH: u16 = 50;
@@ -156,7 +155,11 @@ fn darken_full_window(frame: &mut Frame) {
 fn draw_modal(frame: &mut Frame, area: Rect, title: &str, message: &str, color: Color) {
     let bg_img: Option<&QuadrantImage> = None;
     let msg_lines: Vec<&str> = message.lines().collect();
-    let msg_w = msg_lines.iter().map(|l| l.len()).max().unwrap_or(20) as u16;
+    let msg_w = msg_lines
+        .iter()
+        .map(|l| UnicodeWidthStr::width(*l))
+        .max()
+        .unwrap_or(20) as u16;
     let overlay_w = (msg_w + 8).max(30).min(area.width.saturating_sub(4));
     let overlay_h = (msg_lines.len() as u16 + 6).min(area.height.saturating_sub(2));
 
@@ -299,12 +302,14 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
             .and_then(|s| s.update_info.as_ref())
             .is_some_and(|i| i.preinstall_available);
 
-        let state_text = if installed.is_some() && has_update {
-            format!("v{} - update available", installed.unwrap())
-        } else if installed.is_some() && has_preinstall {
-            format!("v{} - preinstall available", installed.unwrap())
-        } else if installed.is_some() {
-            format!("v{}", installed.unwrap())
+        let state_text = if let Some(tag) = installed {
+            if has_update {
+                format!("v{} - update available", tag)
+            } else if has_preinstall {
+                format!("v{} - preinstall available", tag)
+            } else {
+                format!("v{}", tag)
+            }
         } else if has_resume {
             "Partially downloaded".to_owned()
         } else {
@@ -339,7 +344,6 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
             render_container(frame, info_rect, bg_img);
             let inner = shrink(info_rect, 2, 1);
             frame.render_widget(Paragraph::new(info_lines), inner);
-            y = info_rect.bottom() + 1;
         }
     }
 }
@@ -382,7 +386,7 @@ fn render_progress_bar(frame: &mut Frame, area: Rect, ratio: f64, label: &str, f
 
     // Center the label
     let label_chars: Vec<char> = label.chars().collect();
-    let label_len = label_chars.len().min(width);
+    let label_len = UnicodeWidthStr::width(label).min(width);
     let label_start = (width.saturating_sub(label_len)) / 2;
 
     let buf = frame.buffer_mut();
@@ -570,7 +574,6 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
                 Span::styled(eta, Style::default().fg(TEXT_MUTED)),
             ])
         } else if dp.downloaded_bytes > 0 && dp.total_bytes > 0 {
-            let pct = dp.downloaded_bytes as f64 / dp.total_bytes as f64;
             let remaining = dp.total_bytes - dp.downloaded_bytes;
             Line::from(Span::styled(
                 format!("{} remaining", format_bytes(remaining)),
@@ -616,18 +619,24 @@ fn draw_launch_log(frame: &mut Frame, app: &App, area: Rect) {
         Rect::new(inner.x, inner.y, inner.width, 1),
     );
 
-    // Log lines (scrolled)
+    // Log lines (scrolled via contiguous slice for safe access)
     let log_area = Rect::new(
         inner.x,
         inner.y + 2,
         inner.width,
         visible_lines.min(inner.height.saturating_sub(2)),
     );
-    let start = app.launch_log_scroll;
-    let end = (start + log_area.height as usize).min(app.launch_log.len());
-    let visible_log: Vec<Line> = app.launch_log[start..end]
-        .iter()
-        .map(|l| {
+    let total = app.launch_log.len();
+    let start = app.launch_log_scroll.min(total);
+    let end = (start + log_area.height as usize).min(total);
+    let (front, back) = app.launch_log.as_slices();
+    let visible_log: Vec<Line> = (start..end)
+        .map(|i| {
+            let l = if i < front.len() {
+                &front[i]
+            } else {
+                &back[i - front.len()]
+            };
             let truncated: String = l.chars().take(log_area.width as usize).collect();
             Line::from(Span::styled(truncated, Style::default().fg(TEXT_MUTED)))
         })
@@ -723,7 +732,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     // Right island: primary action button (always WARNING color)
     let (btn_text, btn_key) = primary_button(app);
     let btn_label = format!("[{}] {}", btn_key, btn_text);
-    let btn_content_w = btn_label.chars().count() as u16;
+    let btn_content_w = UnicodeWidthStr::width(btn_label.as_str()) as u16;
     let btn_island_w = btn_content_w + 4;
     let btn_island_h = 3u16;
 
@@ -743,10 +752,8 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         // Disabled if: downloading another game (and not launchable), OR
         // waiting for components before launch (launch_on_complete)
         (dl.game_id != game && !(installed && !has_update)) || dl.launch_on_complete
-    } else if app.game_running && app.launch_log_game == Some(app.selected_game()) {
-        true
     } else {
-        false
+        app.game_running && app.launch_log_game == Some(app.selected_game())
     };
 
     let btn_rect = Rect::new(
@@ -765,7 +772,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
             View::Settings => "[esc] back",
         }
     };
-    let keys_display_w = keys.chars().count() as u16;
+    let keys_display_w = UnicodeWidthStr::width(keys) as u16;
     let keys_w = (keys_display_w + 4).min(area.width.saturating_sub(btn_island_w + 2));
     let keys_rect = Rect::new(area.x, area.y, keys_w, btn_island_h.min(area.height));
 
