@@ -173,74 +173,74 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             drop(_tx);
         }
 
-        if event::poll(Duration::from_millis(33))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind != KeyEventKind::Press {
-                    continue;
-                }
-
-                // Ctrl+C always quits
-                if key.code == crossterm::event::KeyCode::Char('c')
-                    && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
-                {
-                    break;
-                }
-
-                if app.error_message.is_some() {
-                    app.dismiss_error();
-                    continue;
-                }
-                if app.status_message.is_some() {
-                    app.dismiss_status();
-                    continue;
-                }
-
-                if app.show_resume_prompt {
-                    match key.code {
-                        crossterm::event::KeyCode::Char('y') => {
-                            app.show_resume_prompt = false;
-                            actions::resume_download(&mut app, &client, &progress_tx);
-                        }
-                        _ => {
-                            app.show_resume_prompt = false;
-                        }
-                    }
-                    continue;
-                }
-
-                // Any key dismisses help overlay
-                if app.show_help {
-                    app.show_help = false;
-                    continue;
-                }
-
-                // Cancel confirmation: y confirms, anything else dismisses
-                if app.show_cancel_confirm {
-                    if key.code == crossterm::event::KeyCode::Char('y') {
-                        app.finish_download();
-                    }
-                    app.show_cancel_confirm = false;
-                    continue;
-                }
-
-                input::handle_key(
-                    &mut app,
-                    key.code,
-                    &client,
-                    &progress_tx,
-                    &mut terminal,
-                )
-                .await?;
+        if event::poll(Duration::from_millis(33))?
+            && let Event::Key(key) = event::read()?
+        {
+            if key.kind != KeyEventKind::Press {
+                continue;
             }
+
+            // Ctrl+C always quits
+            if key.code == crossterm::event::KeyCode::Char('c')
+                && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
+            {
+                break;
+            }
+
+            if app.error_message.is_some() {
+                app.dismiss_error();
+                continue;
+            }
+            if app.status_message.is_some() {
+                app.dismiss_status();
+                continue;
+            }
+
+            if app.show_resume_prompt {
+                match key.code {
+                    crossterm::event::KeyCode::Char('y') => {
+                        app.show_resume_prompt = false;
+                        actions::resume_download(&mut app, &client, &progress_tx);
+                    }
+                    _ => {
+                        app.show_resume_prompt = false;
+                    }
+                }
+                continue;
+            }
+
+            // Any key dismisses help overlay
+            if app.show_help {
+                app.show_help = false;
+                continue;
+            }
+
+            // Cancel confirmation: y confirms, anything else dismisses
+            if app.show_cancel_confirm {
+                if key.code == crossterm::event::KeyCode::Char('y') {
+                    app.finish_download();
+                }
+                app.show_cancel_confirm = false;
+                continue;
+            }
+
+            input::handle_key(
+                &mut app,
+                key.code,
+                &client,
+                &progress_tx,
+                &mut terminal,
+            )
+            .await?;
         }
 
         // Re-encode on terminal resize
-        if let Ok(new_size) = crossterm::terminal::size() {
-            if new_size != term_size {
-                term_size = new_size;
-                app.backgrounds.clear();
-                load_from_cache(&mut app, term_size);
-            }
+        if let Ok(new_size) = crossterm::terminal::size()
+            && new_size != term_size
+        {
+            term_size = new_size;
+            app.backgrounds.clear();
+            load_from_cache(&mut app, term_size);
         }
 
         while let Ok(progress) = progress_rx.try_recv() {

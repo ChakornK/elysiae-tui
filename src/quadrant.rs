@@ -172,7 +172,7 @@ fn best_quadrant(colors: &[[u8; 3]; 4]) -> (char, Color, Color) {
     let mut best_pattern = 0u8;
 
     for pattern in 0u8..16 {
-        let fg_count = pattern.count_ones() as u32;
+        let fg_count = pattern.count_ones();
         let bg_count = 4 - fg_count;
 
         // Compute fg_sum by accumulating set bits
@@ -213,7 +213,7 @@ fn best_quadrant(colors: &[[u8; 3]; 4]) -> (char, Color, Color) {
     }
 
     // Reconstruct fg/bg colors for the winning pattern
-    let fg_count = best_pattern.count_ones() as u32;
+    let fg_count = best_pattern.count_ones();
     let bg_count = 4 - fg_count;
     let mut fg_sum = [0u32; 3];
     for i in 0..4u8 {
@@ -224,6 +224,7 @@ fn best_quadrant(colors: &[[u8; 3]; 4]) -> (char, Color, Color) {
         }
     }
 
+    #[allow(clippy::manual_checked_ops)]
     let fg = if fg_count > 0 {
         Color::Rgb(
             (fg_sum[0] / fg_count) as u8,
@@ -233,6 +234,7 @@ fn best_quadrant(colors: &[[u8; 3]; 4]) -> (char, Color, Color) {
     } else {
         Color::Rgb(0, 0, 0)
     };
+    #[allow(clippy::manual_checked_ops)]
     let bg = if bg_count > 0 {
         let bg_sum = [
             total[0] - fg_sum[0],

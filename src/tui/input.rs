@@ -155,11 +155,8 @@ async fn handle_main(
 }
 
 fn handle_settings(app: &mut App, key: KeyCode, _client: &reqwest::Client, _progress_tx: &Sender<SophonProgress>) -> Result<(), Box<dyn std::error::Error>> {
-    match key {
-        KeyCode::Esc => {
-            app.current_view = View::GameList;
-        }
-        _ => {}
+    if key == KeyCode::Esc {
+        app.current_view = View::GameList;
     }
     Ok(())
 }

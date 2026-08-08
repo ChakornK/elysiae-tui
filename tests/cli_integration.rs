@@ -16,6 +16,7 @@ fn no_args_yields_tui_mode() {
     assert!(stdout.contains("check-update"));
     assert!(stdout.contains("preinstall"));
     assert!(stdout.contains("apply-preinstall"));
+    assert!(stdout.contains("resume"));
 }
 
 #[test]
@@ -43,15 +44,17 @@ fn invalid_game_id_rejected() {
 
 #[test]
 fn check_update_accepts_valid_game() {
-    // This will fail at runtime (no install path) but should parse successfully
+    // Verifies that "check-update hk4e" parses without a clap error.
+    // May succeed (if config has a path) or fail at runtime — both are valid.
     let result = std::process::Command::new(env!("CARGO_BIN_EXE_elysiae-tui"))
         .args(["check-update", "hk4e"])
         .output()
         .expect("failed to run binary");
 
-    // Fails with "no install path" error, not a parse error
     let stderr = String::from_utf8_lossy(&result.stderr);
-    assert!(stderr.contains("error") || !result.status.success());
+    // Clap errors contain "error: " with specific formatting. A runtime error or
+    // success both indicate parsing succeeded.
+    assert!(!stderr.contains("error: invalid value"));
 }
 
 #[test]

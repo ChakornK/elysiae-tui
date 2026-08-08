@@ -207,11 +207,11 @@ fn spawn_operation(
             .join("elysiae-tui");
 
         // Auto-install components before any download operation
-        if matches!(op, Op::Download | Op::Update | Op::Preinstall) {
-            if let Err(msg) = ensure_components(&client, &data_dir, game, &tx, &handle).await {
-                let _ = tx.send(SophonProgress::Error { message: msg }).await;
-                return;
-            }
+        if matches!(op, Op::Download | Op::Update | Op::Preinstall)
+            && let Err(msg) = ensure_components(&client, &data_dir, game, &tx, &handle).await
+        {
+            let _ = tx.send(SophonProgress::Error { message: msg }).await;
+            return;
         }
 
         let ops = Operations::new(client.clone());
@@ -226,10 +226,10 @@ fn spawn_operation(
             if !msg.to_lowercase().contains("cancel") {
                 let _ = tx.send(SophonProgress::Error { message: msg }).await;
             }
-        } else if matches!(op, Op::Download | Op::Update) {
-            if let Err(e) = crate::postinstall::run_post_install(&client, std::path::Path::new(&path), game.as_str(), tx.clone()).await {
-                tracing::warn!("post-install failed: {e}");
-            }
+        } else if matches!(op, Op::Download | Op::Update)
+            && let Err(e) = crate::postinstall::run_post_install(&client, std::path::Path::new(&path), game.as_str(), tx.clone()).await
+        {
+            tracing::warn!("post-install failed: {e}");
         }
         let _ = tx.send(SophonProgress::Finished).await;
     });

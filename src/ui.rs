@@ -314,39 +314,39 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     // Build content lines for the info container
     let mut info_lines: Vec<Line> = Vec::new();
 
-    if let Some(gs) = status {
-        if let Some(ref info) = gs.update_info {
-            if info.update_available {
-                info_lines.push(Line::from(vec![
-                    Span::styled(
-                        " Update available  ",
-                        Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD),
+    if let Some(gs) = status
+        && let Some(ref info) = gs.update_info
+    {
+        if info.update_available {
+            info_lines.push(Line::from(vec![
+                Span::styled(
+                    " Update available  ",
+                    Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!(
+                        "{} ({})",
+                        info.remote_tag,
+                        format_bytes(info.update_compressed_size)
                     ),
-                    Span::styled(
-                        format!(
-                            "{} ({})",
-                            info.remote_tag,
-                            format_bytes(info.update_compressed_size)
-                        ),
-                        Style::default().fg(TEXT_MUTED),
-                    ),
-                ]));
-            }
-            if info.preinstall_available {
-                let tag = info.preinstall_tag.as_deref().unwrap_or("unknown");
-                let suffix = if info.preinstall_downloaded {
-                    " [ready]"
-                } else {
-                    ""
-                };
-                info_lines.push(Line::from(vec![
-                    Span::styled(" Preinstall  ", Style::default().fg(MAGENTA)),
-                    Span::styled(
-                        format!("{}{}", tag, suffix),
-                        Style::default().fg(TEXT_MUTED),
-                    ),
-                ]));
-            }
+                    Style::default().fg(TEXT_MUTED),
+                ),
+            ]));
+        }
+        if info.preinstall_available {
+            let tag = info.preinstall_tag.as_deref().unwrap_or("unknown");
+            let suffix = if info.preinstall_downloaded {
+                " [ready]"
+            } else {
+                ""
+            };
+            info_lines.push(Line::from(vec![
+                Span::styled(" Preinstall  ", Style::default().fg(MAGENTA)),
+                Span::styled(
+                    format!("{}{}", tag, suffix),
+                    Style::default().fg(TEXT_MUTED),
+                ),
+            ]));
         }
     }
 

@@ -96,7 +96,7 @@ impl Config {
 
     /// Returns the game config for the given id, inserting a default if absent.
     pub fn game_config(&mut self, game: GameId) -> &mut GameConfig {
-        self.games.entry(game).or_insert_with(GameConfig::default)
+        self.games.entry(game).or_default()
     }
 }
 

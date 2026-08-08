@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::atomic;
 
+/// Type alias for the state-saver callback.
+pub type StateSaverFn = Arc<dyn Fn(&HashMap<String, u64>) + Send + Sync>;
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DownloadType {
     Fresh,
@@ -47,10 +50,7 @@ impl DownloadState {
 }
 
 /// Creates a closure that persists chunk progress to disk on each callback.
-pub fn make_state_saver(
-    initial: DownloadState,
-    path: PathBuf,
-) -> Arc<dyn Fn(&HashMap<String, u64>) + Send + Sync> {
+pub fn make_state_saver(initial: DownloadState, path: PathBuf) -> StateSaverFn {
     let state = Arc::new(Mutex::new(initial));
     let path = Arc::new(path);
     Arc::new(move |chunks: &HashMap<String, u64>| {
