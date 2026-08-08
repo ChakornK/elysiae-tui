@@ -223,7 +223,11 @@ impl Operations {
                     // Manifest changed upstream; stale chunks are useless
                     tracing::warn!("manifest changed since last download, discarding stale state");
                     let chunks_dir = PathBuf::from(output_path).join("chunks");
-                    let _ = std::fs::remove_dir_all(&chunks_dir);
+                    if let Err(e) = std::fs::remove_dir_all(&chunks_dir) {
+                        if chunks_dir.exists() {
+                            tracing::error!("failed to remove stale chunks at {}: {e}", chunks_dir.display());
+                        }
+                    }
                     (HashMap::new(), String::new())
                 }
             }
