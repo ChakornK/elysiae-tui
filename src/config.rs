@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use crate::game::GameId;
 
 /// Expands a home-relative subpath using the actual HOME directory.
+/// Falls back to /tmp/elysiae-tui if HOME is unset.
 pub(crate) fn fallback_home_join(subpath: &str) -> PathBuf {
     dirs::home_dir()
-        .expect("HOME environment variable must be set")
+        .unwrap_or_else(|| PathBuf::from("/tmp/elysiae-tui"))
         .join(subpath)
 }
 
