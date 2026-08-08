@@ -663,7 +663,7 @@ dependencies = [
  "fs2",
  "image",
  "irmin",
- "md-5 0.10.6",
+ "md-5",
  "proptest",
  "ratatui",
  "reqwest",
@@ -1276,7 +1276,7 @@ checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
 [[package]]
 name = "irmin"
 version = "1.0.0"
-source = "git+https://github.com/elysiae-project/irmin?rev=165462e#165462e83df702548aee6017af0268f443dfa059"
+source = "git+https://github.com/elysiae-project/irmin?branch=perf%2Foptimize-2608#c9f46d628683d8d7ef275737a2af990d78ad310b"
 dependencies = [
  "dashmap",
  "fast-md5",
@@ -1286,14 +1286,12 @@ dependencies = [
  "libc",
  "log",
  "lz4",
- "md-5 0.11.0",
  "prost",
  "reqwest",
  "rustc-hash",
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tokio-util",
@@ -1540,16 +1538,6 @@ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
 dependencies = [
  "cfg-if",
  "digest 0.10.7",
-]
-
-[[package]]
-name = "md-5"
-version = "0.11.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
-dependencies = [
- "cfg-if",
- "digest 0.11.3",
 ]
 
 [[package]]
@@ -2840,7 +2828,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",

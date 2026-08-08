@@ -162,7 +162,7 @@ impl Operations {
 
         game_installer::preinstall_download(
             &self.client,
-            &plan,
+            plan,
             &game_dir,
             game.as_str(),
             vo_lang,
