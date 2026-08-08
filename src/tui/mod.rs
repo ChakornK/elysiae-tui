@@ -129,6 +129,11 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
         terminal.draw(|frame| ui::draw(frame, &app))?;
 
+        // Clear finished background transitions
+        if app.bg_transition.as_ref().is_some_and(|t| t.is_done()) {
+            app.bg_transition = None;
+        }
+
         // Receive lazily-encoded backgrounds when ready
         if let Ok(new_bgs) = bg_rx.try_recv() {
             for (game, img) in new_bgs {
@@ -296,6 +301,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         {
             term_size = new_size;
             app.backgrounds.clear();
+            app.bg_transition = None;
             load_from_cache(&mut app, term_size);
         }
 
