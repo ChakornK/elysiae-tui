@@ -72,12 +72,18 @@ impl Launcher {
                 .arg(&command_str)
                 .env("STEAM_COMPAT_DATA_PATH", &compat_str)
                 .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")
+                .env("__NV_DISABLE_EXPLICIT_SYNC", "1")
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped())
+                .kill_on_drop(true)
                 .spawn()
             {
                 Ok(c) => c,
-                Err(_) => return,
+                Err(e) => {
+                    let _ = log_tx.send(format!("failed to spawn process: {e}")).await;
+                    let _ = log_tx.send("__PROCESS_EXIT__".to_owned()).await;
+                    return;
+                }
             };
 
             let mut handles = Vec::new();
@@ -116,13 +122,5 @@ impl Launcher {
         });
 
         Ok(())
-    }
-
-    pub fn proton_available(&self) -> bool {
-        self.data_dir.join("proton").join("proton").exists()
-    }
-
-    pub fn jadeite_available(&self) -> bool {
-        self.data_dir.join("jadeite").join("jadeite.exe").exists()
     }
 }
