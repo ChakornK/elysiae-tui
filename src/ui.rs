@@ -950,7 +950,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 fn primary_button(app: &App) -> (&'static str, &'static str) {
     if let Some(ref dl) = app.download {
         if dl.game_id == app.selected_game() {
-            return ("Downloading...", "p");
+            return (dl.op_label, "p");
         }
         // Another game is downloading — show what the button would do if enabled
         let game = app.selected_game();
@@ -960,10 +960,10 @@ fn primary_button(app: &App) -> (&'static str, &'static str) {
             .and_then(|s| s.update_info.as_ref())
             .is_some_and(|i| i.update_available);
         let has_resume = status.is_some_and(|s| s.has_resume);
-        if has_update {
-            return ("Update", "⏎");
-        } else if has_resume {
+        if has_resume {
             return ("Resume", "⏎");
+        } else if has_update {
+            return ("Update", "⏎");
         } else if installed {
             return ("Launch", "⏎");
         } else {
@@ -981,10 +981,10 @@ fn primary_button(app: &App) -> (&'static str, &'static str) {
                 .is_some_and(|i| i.update_available);
             let has_resume = status.is_some_and(|s| s.has_resume);
 
-            if has_update {
-                ("Update", "⏎")
-            } else if has_resume {
+            if has_resume {
                 ("Resume", "⏎")
+            } else if has_update {
+                ("Update", "⏎")
             } else if installed {
                 ("Launch", "⏎")
             } else {
@@ -1121,7 +1121,7 @@ mod tests {
         let mut app = crate::app::App::new(config);
         let game = app.selected_game();
         let handle = irmin::DownloadHandle::new();
-        app.start_download(game, handle);
+        app.start_download(game, handle, "Downloading...");
         let (label, key) = primary_button(&app);
         assert_eq!(label, "Downloading...");
         assert_eq!(key, "p");
@@ -1144,7 +1144,7 @@ mod tests {
         // Start download on a different game
         let other = crate::game::GameId::Nap;
         let handle = irmin::DownloadHandle::new();
-        app.start_download(other, handle);
+        app.start_download(other, handle, "Downloading...");
         let (label, key) = primary_button(&app);
         assert_eq!(label, "Launch");
         assert_eq!(key, "⏎");

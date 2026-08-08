@@ -26,7 +26,7 @@ pub fn start_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sen
         }
     };
     let handle = DownloadHandle::new();
-    app.start_download(game, handle.clone());
+    app.start_download(game, handle.clone(), "Downloading...");
     spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Download);
 }
 
@@ -36,7 +36,7 @@ pub fn start_update(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
     let gc = app.config.game_config(game).clone();
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();
-        app.start_download(game, handle.clone());
+        app.start_download(game, handle.clone(), "Updating...");
         spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Update);
     }
 }
@@ -47,7 +47,7 @@ pub fn start_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
     let gc = app.config.game_config(game).clone();
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();
-        app.start_download(game, handle.clone());
+        app.start_download(game, handle.clone(), "Preinstalling...");
         spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Preinstall);
     }
 }
@@ -81,8 +81,14 @@ pub fn start_resume(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
         crate::state::DownloadType::Preinstall => Op::Preinstall,
     };
 
+    let op_label = match dl_type {
+        crate::state::DownloadType::Fresh => "Downloading...",
+        crate::state::DownloadType::Update => "Updating...",
+        crate::state::DownloadType::Preinstall => "Preinstalling...",
+    };
+
     let handle = DownloadHandle::new();
-    app.start_download(game, handle.clone());
+    app.start_download(game, handle.clone(), op_label);
     spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), op);
 }
 
@@ -96,7 +102,7 @@ pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
             .and_then(|i| i.preinstall_tag.clone());
         let Some(preinstall_tag) = info else { return };
         let handle = DownloadHandle::new();
-        app.start_download(game, handle.clone());
+        app.start_download(game, handle.clone(), "Applying...");
         let client = client.clone();
         let tx = progress_tx.clone();
         let path_str = path.to_string_lossy().to_string();
@@ -128,7 +134,7 @@ pub fn start_verify(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
     let gc = app.config.game_config(game).clone();
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();
-        app.start_download(game, handle.clone());
+        app.start_download(game, handle.clone(), "Verifying...");
         spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Verify);
     }
 }
@@ -139,7 +145,7 @@ pub fn resume_download(app: &mut App, client: &reqwest::Client, progress_tx: &Se
     let gc = app.config.game_config(game).clone();
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();
-        app.start_download(game, handle.clone());
+        app.start_download(game, handle.clone(), "Downloading...");
         // Resume uses the same download function; irmin detects the state file automatically
         spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Download);
     }
@@ -200,7 +206,7 @@ pub fn prepare_and_launch(
 
     // Components missing — install them with progress, then signal ready to launch
     let handle = DownloadHandle::new();
-    app.start_download(game, handle.clone());
+    app.start_download(game, handle.clone(), "Installing...");
     if let Some(ref mut dl) = app.download {
         dl.launch_on_complete = true;
     }

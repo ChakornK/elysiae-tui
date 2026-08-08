@@ -102,10 +102,10 @@ async fn handle_main(
             let has_resume = status.is_some_and(|s| s.has_resume);
 
             if app.download.is_none() {
-                if has_update {
-                    actions::start_update(app, client, progress_tx);
-                } else if has_resume {
+                if has_resume {
                     actions::start_resume(app, client, progress_tx);
+                } else if has_update {
+                    actions::start_update(app, client, progress_tx);
                 } else if installed {
                     if !(app.game_running && app.launch_log_game == Some(game)) {
                         actions::prepare_and_launch(app, client, progress_tx);

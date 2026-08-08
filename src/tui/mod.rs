@@ -37,15 +37,16 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let mut term_size = crossterm::terminal::size().unwrap_or((80, 24));
 
     // Load installed tags and resume state
+    let data_dir_for_state = crate::config::app_data_dir();
     for game in GameId::ALL {
         let gc = app.config.game_config(game).clone();
         if let Some(ref path) = gc.install_path {
             let tag = irmin::game_installer::read_installed_tag(path);
-            let has_state_file = irmin::sophon_has_resume_state(&path.to_string_lossy());
+            let app_state_exists = crate::state::DownloadState::state_path(&data_dir_for_state, game.as_str()).exists();
             let has_chunks = path.join("chunks").exists();
             // Game is truly installed only if exe exists
             let exe_exists = path.join(game.exe_name()).exists();
-            let has_resume = !exe_exists && (has_state_file || has_chunks);
+            let has_resume = !exe_exists && (app_state_exists || has_chunks);
             app.games.insert(game, crate::app::GameStatus {
                 installed_tag: if exe_exists { tag } else { None },
                 update_info: None,
@@ -154,14 +155,12 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     if info.update_available && app.config.auto_update {
                         let gc = app.config.game_config(*game).clone();
                         if gc.install_path.is_some() {
-                            app.active_game = *game;
                             actions::start_update(&mut app, &client, &progress_tx);
                             break;
                         }
                     } else if info.preinstall_available && app.config.auto_preload {
                         let gc = app.config.game_config(*game).clone();
                         if gc.install_path.is_some() {
-                            app.active_game = *game;
                             actions::start_preinstall(&mut app, &client, &progress_tx);
                             break;
                         }
@@ -185,6 +184,14 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 && key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL)
             {
                 break;
+            }
+
+            // Download controls (p/c) bypass the modal stack
+            if app.download.is_some() && matches!(key.code,
+                crossterm::event::KeyCode::Char('p') | crossterm::event::KeyCode::Char('c'))
+            {
+                input::handle_key(&mut app, key.code, &client, &progress_tx, &mut terminal).await?;
+                continue;
             }
 
             if app.error_message.is_some() {
@@ -371,19 +378,13 @@ fn quadrant_cache_dir() -> std::path::PathBuf {
 
 /// Checks all game directories for resume state files.
 fn check_resume_state(app: &mut App) {
+    let data_dir = crate::config::app_data_dir();
     for game in GameId::ALL {
-        let gc = app.config.game_config(game).clone();
-        if let Some(ref path) = gc.install_path {
-            let path_str = path.to_string_lossy();
-            if irmin::sophon_has_resume_state(&path_str) {
-                app.show_resume_prompt = true;
-                app.active_game = game;
-                app.status_message = Some(format!(
-                    "Interrupted download found for {}. Resume? (y/n)",
-                    game.display_name()
-                ));
-                return;
-            }
+        let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
+        if state_path.exists() {
+            app.show_resume_prompt = true;
+            app.active_game = game;
+            return;
         }
     }
 }

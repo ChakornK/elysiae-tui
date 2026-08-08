@@ -35,6 +35,8 @@ pub struct ActiveDownload {
     pub launch_on_complete: bool,
     /// Overrides the progress overlay header (e.g. "Installing Proton").
     pub header_override: Option<String>,
+    /// Label shown on the primary button while this download is active.
+    pub op_label: &'static str,
 }
 
 /// Download byte progress.
@@ -122,7 +124,7 @@ impl App {
     }
 
     /// Begins tracking a new download. Stays on the current view.
-    pub fn start_download(&mut self, game_id: GameId, handle: DownloadHandle) {
+    pub fn start_download(&mut self, game_id: GameId, handle: DownloadHandle, op_label: &'static str) {
         self.download = Some(ActiveDownload {
             game_id,
             handle,
@@ -133,6 +135,7 @@ impl App {
             status_label: Some("Fetching manifest...".to_owned()),
             launch_on_complete: false,
             header_override: None,
+            op_label,
         });
     }
 
@@ -292,10 +295,13 @@ impl App {
             dl.handle.cancel();
             let game_id = dl.game_id;
             if let Some(gs) = self.games.get_mut(&game_id) {
-                // Check if a state file exists (written by the state saver during download)
                 let data_dir = crate::config::app_data_dir();
                 let state_path = crate::state::DownloadState::state_path(&data_dir, game_id.as_str());
-                gs.has_resume = state_path.exists();
+                let gc = self.config.games.get(&game_id);
+                let install_path = gc.and_then(|c| c.install_path.as_ref());
+                let has_chunks = install_path.map(|p| p.join("chunks").exists()).unwrap_or(false);
+                let exe_exists = install_path.map(|p| p.join(game_id.exe_name()).exists()).unwrap_or(false);
+                gs.has_resume = !exe_exists && (state_path.exists() || has_chunks);
             }
         }
         self.download = None;
