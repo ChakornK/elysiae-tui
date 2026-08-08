@@ -67,12 +67,20 @@ pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
         let tx = progress_tx.clone();
         let path_str = path.to_string_lossy().to_string();
         tokio::spawn(async move {
-            let ops = Operations::new(client);
+            if let Err(e) = irmin::game_installer::validate_asset_name(&preinstall_tag) {
+                let _ = tx.send(SophonProgress::Error { message: format!("invalid preinstall tag: {e}") }).await;
+                return;
+            }
+            let ops = Operations::new(client.clone());
             let result = ops.apply_preinstall(&preinstall_tag, &path_str, &handle, tx.clone()).await;
             if let Err(e) = result {
                 let msg = e.to_string();
                 if !msg.to_lowercase().contains("cancel") {
                     let _ = tx.send(SophonProgress::Error { message: msg }).await;
+                }
+            } else {
+                if let Err(e) = crate::postinstall::run_post_install(ops.client(), std::path::Path::new(&path_str), game.as_str(), tx.clone()).await {
+                    tracing::warn!("post-install failed: {e}");
                 }
             }
             let _ = tx.send(SophonProgress::Finished).await;
@@ -206,7 +214,7 @@ fn spawn_operation(
             }
         }
 
-        let ops = Operations::new(client);
+        let ops = Operations::new(client.clone());
         let result = match op {
             Op::Download => ops.download(game, &vo_lang, &path, &handle, tx.clone()).await,
             Op::Update => ops.update(game, &vo_lang, &path, &handle, tx.clone()).await,
@@ -217,6 +225,10 @@ fn spawn_operation(
             let msg = e.to_string();
             if !msg.to_lowercase().contains("cancel") {
                 let _ = tx.send(SophonProgress::Error { message: msg }).await;
+            }
+        } else if matches!(op, Op::Download | Op::Update) {
+            if let Err(e) = crate::postinstall::run_post_install(&client, std::path::Path::new(&path), game.as_str(), tx.clone()).await {
+                tracing::warn!("post-install failed: {e}");
             }
         }
         let _ = tx.send(SophonProgress::Finished).await;
@@ -250,10 +262,8 @@ async fn ensure_components(
         };
         // Remove stale/wrong-arch install before downloading fresh
         let proton_dir = data_dir.join("proton");
-        if proton_dir.exists() {
-            let _ = std::fs::remove_dir_all(&proton_dir);
-        }
-        let _ = std::fs::remove_dir_all(data_dir.join("proton-data"));
+        let _ = crate::atomic::safe_remove_dir_all(&proton_dir);
+        let _ = crate::atomic::safe_remove_dir_all(&data_dir.join("proton-data"));
         let tag = install_component_with_progress(client, data_dir, "proton", label, tx, handle)
             .await?;
         let mut config = Config::load();
@@ -276,7 +286,7 @@ async fn ensure_components(
         if jadeite_missing || jadeite_outdated {
             let label = if jadeite_outdated { "Updating Jadeite" } else { "Installing Jadeite" };
             if jadeite_outdated {
-                let _ = std::fs::remove_dir_all(data_dir.join("jadeite"));
+                let _ = crate::atomic::safe_remove_dir_all(&data_dir.join("jadeite"));
             }
             let tag = install_component_with_progress(client, data_dir, "jadeite", label, tx, handle)
                 .await?;
