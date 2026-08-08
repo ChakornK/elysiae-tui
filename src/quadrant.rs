@@ -95,7 +95,7 @@ impl QuadrantImage {
         }
         let mut cells = Vec::with_capacity((width as usize) * (height as usize));
         let mut i = 4;
-        while i + 6 < buf.len() {
+        while i + 7 <= buf.len() {
             let ch = QUADRANT_CHARS[(buf[i] & 0x0F) as usize];
             let fg = Color::Rgb(buf[i + 1], buf[i + 2], buf[i + 3]);
             let bg = Color::Rgb(buf[i + 4], buf[i + 5], buf[i + 6]);
@@ -115,7 +115,9 @@ impl Widget for &QuadrantImage {
         for cy in 0..self.height.min(area.height) {
             for cx in 0..self.width.min(area.width) {
                 let idx = (cy as usize) * (self.width as usize) + (cx as usize);
-                let cell = &self.cells[idx];
+                let Some(cell) = self.cells.get(idx) else {
+                    return;
+                };
                 let buf_cell = &mut buf[(area.x + cx, area.y + cy)];
                 buf_cell.set_char(cell.ch);
                 buf_cell.set_fg(cell.fg);
