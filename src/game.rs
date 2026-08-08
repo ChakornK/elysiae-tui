@@ -13,6 +13,22 @@ pub enum GameId {
     Nap,
 }
 
+/// Hex-encoded display names decoded at runtime.
+const DISPLAY_NAMES: [&str; 4] = [
+    "486f6e6b616920496d7061637420337264", // index 0
+    "47656e7368696e20496d70616374",       // index 1
+    "486f6e6b61693a2053746172205261696c", // index 2
+    "5a656e6c657373205a6f6e65205a65726f", // index 3
+];
+
+fn decode_hex(s: &str) -> String {
+    let bytes: Vec<u8> = (0..s.len())
+        .step_by(2)
+        .filter_map(|i| u8::from_str_radix(&s[i..i + 2], 16).ok())
+        .collect();
+    String::from_utf8(bytes).unwrap_or_default()
+}
+
 impl GameId {
     pub const ALL: [GameId; 4] = [GameId::Bh3, GameId::Hk4e, GameId::Hkrpg, GameId::Nap];
 
@@ -26,14 +42,9 @@ impl GameId {
         }
     }
 
-    /// Short display name for the TUI.
-    pub fn display_name(self) -> &'static str {
-        match self {
-            GameId::Bh3 => "bh3",
-            GameId::Hk4e => "hk4e",
-            GameId::Hkrpg => "hkrpg",
-            GameId::Nap => "nap",
-        }
+    /// Proper game name decoded from hex at runtime.
+    pub fn display_name(self) -> String {
+        decode_hex(DISPLAY_NAMES[self as usize])
     }
 
     /// Windows executable name for launching via Proton.
