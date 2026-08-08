@@ -17,6 +17,10 @@ impl Operations {
         Self { client }
     }
 
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
     pub async fn check_update(
         &self,
         game: GameId,

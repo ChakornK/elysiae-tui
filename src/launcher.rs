@@ -18,6 +18,7 @@ pub enum LaunchError {
     #[error("game executable not found at {0}")]
     GameExeMissing(PathBuf),
     #[error("failed to spawn process: {0}")]
+    #[allow(dead_code)]
     Spawn(std::io::Error),
 }
 
