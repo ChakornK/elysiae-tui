@@ -242,9 +242,9 @@ fn draw_confirm_dialog(frame: &mut Frame, area: Rect, dialog: &crate::app::Confi
             Style::default().fg(TEXT_MUTED)
         };
 
-        let yes_btn = Span::styled("  Yes (y)  ", yes_style);
+        let yes_btn = Span::styled(" [y] Yes ", yes_style);
         let spacer = Span::raw("   ");
-        let no_btn = Span::styled("  No (esc)  ", no_style);
+        let no_btn = Span::styled(" [esc] No ", no_style);
         let btn_line = Line::from(vec![yes_btn, spacer, no_btn]);
         frame.render_widget(Paragraph::new(btn_line), Rect::new(inner.x, btn_y, inner.width, 1));
     }

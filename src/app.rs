@@ -76,7 +76,7 @@ impl ConfirmDialog {
         Self {
             title: "Cancel Download".to_string(),
             message: "Cancel the active download?".to_string(),
-            selected: 1, // default to "No" for destructive action
+            selected: 1, // default to "No"
             kind: DialogKind::CancelDownload,
         }
     }
@@ -85,7 +85,7 @@ impl ConfirmDialog {
         Self {
             title: "Resume Download".to_string(),
             message: format!("Interrupted download found for {game_name}. Resume?"),
-            selected: 0, // default to "Yes" for non-destructive action
+            selected: 1, // default to "No"
             kind: DialogKind::ResumeDownload,
         }
     }
