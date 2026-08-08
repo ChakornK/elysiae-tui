@@ -27,26 +27,50 @@ pub enum Commands {
         lang: String,
         #[arg(long)]
         path: PathBuf,
+        #[arg(long)]
+        tag: Option<String>,
     },
     /// Update an installed game to the latest version.
-    Update { game: GameId },
+    Update {
+        game: GameId,
+        #[arg(long)]
+        lang: Option<String>,
+    },
     /// Download a preinstall patch for an upcoming version.
-    Preinstall { game: GameId },
+    Preinstall {
+        game: GameId,
+        #[arg(long)]
+        lang: Option<String>,
+    },
     /// Apply a previously downloaded preinstall patch.
-    ApplyPreinstall { game: GameId },
+    ApplyPreinstall {
+        game: GameId,
+        #[arg(long)]
+        lang: Option<String>,
+    },
     /// Verify integrity of installed game files.
-    Verify { game: GameId },
+    Verify {
+        game: GameId,
+        #[arg(long)]
+        lang: Option<String>,
+    },
     /// Launch the game through Proton.
     Launch { game: GameId },
     /// Check whether an update is available.
-    CheckUpdate { game: GameId },
+    CheckUpdate {
+        game: GameId,
+        #[arg(long)]
+        lang: Option<String>,
+    },
+    /// Resume an interrupted download.
+    Resume { game: GameId },
 }
 
 /// Executes the given CLI command against the provided config.
 pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn std::error::Error>> {
     let client = crate::http::build_client();
     match cmd {
-        Commands::Download { game, lang, path } => {
+        Commands::Download { game, lang, path, tag: _tag } => {
             let ops = Operations::new(client.clone());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
@@ -58,18 +82,30 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             });
 
             let path_str = path.to_string_lossy();
-            ops.download(game, &lang, &path_str, &handle, tx).await?;
-
-            // Persist the install path for future operations
-            let gc = config.game_config(game);
-            gc.install_path = Some(path);
-            gc.vo_lang = lang;
-            config.save()?;
-
-            println!("Download complete.");
+            tokio::select! {
+                result = ops.download(game, &lang, &path_str, &handle, tx) => {
+                    result?;
+                    // Persist the install path for future operations
+                    let gc = config.game_config(game);
+                    gc.install_path = Some(path);
+                    gc.vo_lang = lang;
+                    config.save()?;
+                    println!("Download complete.");
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("\ninterrupted, exiting...");
+                }
+            }
         }
-        Commands::Update { game } => {
+        Commands::Update { game, lang } => {
             let gc = config.game_config(game).clone();
+            let vo_lang = match lang {
+                Some(l) => {
+                    crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
+                    l
+                }
+                None => gc.vo_lang.clone(),
+            };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
             let ops = Operations::new(client.clone());
@@ -83,11 +119,25 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             });
 
             let path_str = install_path.to_string_lossy();
-            ops.update(game, &gc.vo_lang, &path_str, &handle, tx).await?;
-            println!("Update complete.");
+            tokio::select! {
+                result = ops.update(game, &vo_lang, &path_str, &handle, tx) => {
+                    result?;
+                    println!("Update complete.");
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("\ninterrupted, exiting...");
+                }
+            }
         }
-        Commands::Preinstall { game } => {
+        Commands::Preinstall { game, lang } => {
             let gc = config.game_config(game).clone();
+            let vo_lang = match lang {
+                Some(l) => {
+                    crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
+                    l
+                }
+                None => gc.vo_lang.clone(),
+            };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
             let ops = Operations::new(client.clone());
@@ -101,11 +151,25 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             });
 
             let path_str = install_path.to_string_lossy();
-            ops.preinstall(game, &gc.vo_lang, &path_str, &handle, tx).await?;
-            println!("Preinstall download complete.");
+            tokio::select! {
+                result = ops.preinstall(game, &vo_lang, &path_str, &handle, tx) => {
+                    result?;
+                    println!("Preinstall download complete.");
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("\ninterrupted, exiting...");
+                }
+            }
         }
-        Commands::ApplyPreinstall { game } => {
+        Commands::ApplyPreinstall { game, lang } => {
             let gc = config.game_config(game).clone();
+            let vo_lang = match lang {
+                Some(l) => {
+                    crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
+                    l
+                }
+                None => gc.vo_lang.clone(),
+            };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
             let ops = Operations::new(client.clone());
@@ -120,13 +184,20 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
 
             // check_update gives us the preinstall_tag needed for apply
             let path_str = install_path.to_string_lossy();
-            let info = ops.check_update(game, &gc.vo_lang, &path_str).await?;
+            let info = ops.check_update(game, &vo_lang, &path_str).await?;
             let tag = info.preinstall_tag.ok_or("no preinstall tag available")?;
             ops.apply_preinstall(&tag, &path_str, &handle, tx).await?;
             println!("Preinstall applied.");
         }
-        Commands::Verify { game } => {
+        Commands::Verify { game, lang } => {
             let gc = config.game_config(game).clone();
+            let vo_lang = match lang {
+                Some(l) => {
+                    crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
+                    l
+                }
+                None => gc.vo_lang.clone(),
+            };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
             let ops = Operations::new(client.clone());
@@ -139,7 +210,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             });
 
             let path_str = install_path.to_string_lossy();
-            ops.verify(game, &gc.vo_lang, &path_str, tx).await?;
+            ops.verify(game, &vo_lang, &path_str, tx).await?;
             println!("Verification complete.");
         }
         Commands::Launch { game } => {
@@ -154,14 +225,21 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let (log_tx, _log_rx) = tokio::sync::mpsc::channel(16);
             launcher.launch(game, install_path, log_tx)?;
         }
-        Commands::CheckUpdate { game } => {
+        Commands::CheckUpdate { game, lang } => {
             let gc = config.game_config(game).clone();
+            let vo_lang = match lang {
+                Some(l) => {
+                    crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
+                    l
+                }
+                None => gc.vo_lang.clone(),
+            };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
             let ops = Operations::new(client.clone());
 
             let path_str = install_path.to_string_lossy();
-            let info = ops.check_update(game, &gc.vo_lang, &path_str).await?;
+            let info = ops.check_update(game, &vo_lang, &path_str).await?;
 
             if info.update_available {
                 println!("Update available: {} -> {}", info.current_tag.as_deref().unwrap_or("unknown"), info.remote_tag);
@@ -172,6 +250,16 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                 let tag = info.preinstall_tag.as_deref().unwrap_or("unknown");
                 println!("Preinstall available: {tag}");
             }
+        }
+        Commands::Resume { game } => {
+            let data_dir = dirs::data_dir()
+                .unwrap_or_else(|| dirs::home_dir().expect("HOME must be set").join(".local/share"))
+                .join("elysiae-tui");
+            let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
+            let state = crate::state::DownloadState::load(&state_path)
+                .ok_or("no interrupted download found for this game")?;
+            println!("resuming {} download for {}", format!("{:?}", state.download_type).to_lowercase(), game.as_str());
+            // Full resume wiring comes in a separate task.
         }
     }
     Ok(())
