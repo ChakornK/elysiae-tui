@@ -27,17 +27,35 @@ use config::Config;
 
 fn init_logging() {
     let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| dirs::home_dir().expect("HOME must be set").join(".local/share"))
+        .unwrap_or_else(|| {
+            dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("/tmp/elysiae-tui"))
+                .join(".local/share")
+        })
         .join("elysiae-tui")
         .join("logs");
     let _ = std::fs::create_dir_all(&data_dir);
-    let file_appender = tracing_appender::rolling::Builder::new()
+    let file_appender = match tracing_appender::rolling::Builder::new()
         .max_log_files(3)
         .rotation(tracing_appender::rolling::Rotation::NEVER)
         .filename_prefix("elysiae-tui")
         .filename_suffix("log")
         .build(&data_dir)
-        .expect("failed to create log file");
+    {
+        Ok(appender) => appender,
+        Err(_) => {
+            // Fall back to stderr-only logging if file creation fails
+            tracing_subscriber::fmt()
+                .with_writer(std::io::stderr)
+                .with_env_filter(
+                    tracing_subscriber::EnvFilter::try_from_env("ELYSIAE_LOG")
+                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+                )
+                .with_ansi(false)
+                .init();
+            return;
+        }
+    };
     tracing_subscriber::fmt()
         .with_writer(file_appender)
         .with_env_filter(
