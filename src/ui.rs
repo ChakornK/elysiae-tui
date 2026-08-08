@@ -15,6 +15,7 @@ enum SettingsItem {
     GameHeader(GameId),
     ManageVos(GameId, usize), // game, count of enabled langs
     UninstallGame(GameId),
+    Spacer,
     ComponentsHeader,
     ComponentInfo { name: &'static str, version: Option<String> },
     UninstallComponent(&'static str),
@@ -51,23 +52,30 @@ pub fn build_settings_items_pub(app: &App) -> Vec<(bool, SettingsAction)> {
 
 fn build_settings_items(app: &App) -> Vec<SettingsItem> {
     let mut items = Vec::new();
+    let mut first_game = true;
     for game in GameId::ALL {
         let installed = app.games.get(&game)
             .and_then(|s| s.installed_tag.as_ref())
             .is_some();
         if !installed { continue; }
+        if !first_game {
+            items.push(SettingsItem::Spacer);
+        }
+        first_game = false;
         items.push(SettingsItem::GameHeader(game));
         let gc = app.config.games.get(&game);
         let vo_count = gc.map(|c| c.vo_langs.len()).unwrap_or(1);
         items.push(SettingsItem::ManageVos(game, vo_count));
         items.push(SettingsItem::UninstallGame(game));
     }
+    items.push(SettingsItem::Spacer);
     items.push(SettingsItem::ComponentsHeader);
     items.push(SettingsItem::ComponentInfo {
         name: "Proton",
         version: app.config.installed_components.proton.clone(),
     });
     items.push(SettingsItem::UninstallComponent("proton"));
+    items.push(SettingsItem::Spacer);
     items.push(SettingsItem::ComponentInfo {
         name: "Jadeite",
         version: app.config.installed_components.jadeite.clone(),
@@ -866,6 +874,10 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     for (i, item) in items.iter().enumerate() {
         let is_cursor = item.is_selectable() && i == app.settings.cursor;
         let line = match item {
+            SettingsItem::Spacer => {
+                lines.push(Line::from(""));
+                continue;
+            }
             SettingsItem::GameHeader(game) => Line::from(Span::styled(
                 format!("── {} ──", game.display_name()),
                 Style::default().fg(game_color(*game)).add_modifier(Modifier::BOLD),
