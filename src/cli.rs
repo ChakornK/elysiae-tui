@@ -44,10 +44,10 @@ pub enum Commands {
 
 /// Executes the given CLI command against the provided config.
 pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn std::error::Error>> {
+    let client = crate::http::build_client();
     match cmd {
         Commands::Download { game, lang, path } => {
-            let client = reqwest::Client::new();
-            let ops = Operations::new(client);
+            let ops = Operations::new(client.clone());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
@@ -72,8 +72,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let gc = config.game_config(game).clone();
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let client = reqwest::Client::new();
-            let ops = Operations::new(client);
+            let ops = Operations::new(client.clone());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
@@ -91,8 +90,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let gc = config.game_config(game).clone();
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let client = reqwest::Client::new();
-            let ops = Operations::new(client);
+            let ops = Operations::new(client.clone());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
@@ -110,8 +108,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let gc = config.game_config(game).clone();
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let client = reqwest::Client::new();
-            let ops = Operations::new(client);
+            let ops = Operations::new(client.clone());
             let handle = DownloadHandle::new();
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
@@ -132,8 +129,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let gc = config.game_config(game).clone();
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let client = reqwest::Client::new();
-            let ops = Operations::new(client);
+            let ops = Operations::new(client.clone());
             let (tx, mut rx) = mpsc::channel::<SophonProgress>(64);
 
             tokio::spawn(async move {
@@ -151,7 +147,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
             let data_dir = dirs::data_dir()
-                .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+                .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
                 .join("elysiae-tui");
 
             let launcher = Launcher::new(data_dir);
@@ -162,8 +158,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let gc = config.game_config(game).clone();
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let client = reqwest::Client::new();
-            let ops = Operations::new(client);
+            let ops = Operations::new(client.clone());
 
             let path_str = install_path.to_string_lossy();
             let info = ops.check_update(game, &gc.vo_lang, &path_str).await?;
@@ -191,13 +186,13 @@ fn print_progress(p: &SophonProgress) {
             println!("Calculating: {checked_files}/{total_files} files");
         }
         SophonProgress::Downloading { downloaded_bytes, total_bytes, speed_bps, .. } => {
-            let pct = if *total_bytes > 0 { *downloaded_bytes * 100 / *total_bytes } else { 0 };
+            let pct = if *total_bytes > 0 { (*downloaded_bytes as f64 / *total_bytes as f64) * 100.0 } else { 0.0 };
             let speed_mb = *speed_bps / 1_000_000.0;
-            println!("Downloading: {pct}% ({speed_mb:.1} MB/s)");
+            println!("Downloading: {pct:.1}% ({speed_mb:.1} MB/s)");
         }
         SophonProgress::Paused { downloaded_bytes, total_bytes } => {
-            let pct = if *total_bytes > 0 { *downloaded_bytes * 100 / *total_bytes } else { 0 };
-            println!("Paused: {pct}%");
+            let pct = if *total_bytes > 0 { (*downloaded_bytes as f64 / *total_bytes as f64) * 100.0 } else { 0.0 };
+            println!("Paused: {pct:.1}%");
         }
         SophonProgress::Assembling { assembled_files, total_files } => {
             println!("Assembling: {assembled_files}/{total_files} files");
@@ -218,8 +213,8 @@ fn print_progress(p: &SophonProgress) {
             println!("Installing SDK: {current_sdk} ({total_sdks} total)");
         }
         SophonProgress::DownloadingPlugin { name, downloaded_bytes, total_bytes } => {
-            let pct = if *total_bytes > 0 { *downloaded_bytes * 100 / *total_bytes } else { 0 };
-            println!("Downloading plugin {name}: {pct}%");
+            let pct = if *total_bytes > 0 { (*downloaded_bytes as f64 / *total_bytes as f64) * 100.0 } else { 0.0 };
+            println!("Downloading plugin {name}: {pct:.1}%");
         }
         SophonProgress::Warning { message } => {
             println!("Warning: {message}");
