@@ -7,6 +7,7 @@ use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc::Sender;
 
 use crate::app::{App, View};
+use crate::transition::BgTransition;
 
 use super::actions;
 
@@ -70,26 +71,36 @@ async fn handle_main(
             }
         }
         KeyCode::Left => {
+            let old = app.selected_game();
             app.prev_game();
             app.active_game = app.selected_game();
+            start_bg_transition(app, old);
         }
         KeyCode::Right => {
+            let old = app.selected_game();
             app.next_game();
             app.active_game = app.selected_game();
+            start_bg_transition(app, old);
         }
         KeyCode::Tab => {
+            let old = app.selected_game();
             app.next_game();
             app.active_game = app.selected_game();
+            start_bg_transition(app, old);
         }
         KeyCode::BackTab => {
+            let old = app.selected_game();
             app.prev_game();
             app.active_game = app.selected_game();
+            start_bg_transition(app, old);
         }
         KeyCode::Char(n @ '1'..='4') => {
             let idx = (n as usize) - ('1' as usize);
             if idx < crate::game::GameId::ALL.len() {
+                let old = app.selected_game();
                 app.game_list_index = idx;
                 app.active_game = app.selected_game();
+                start_bg_transition(app, old);
             }
         }
         KeyCode::Enter => {
@@ -203,5 +214,16 @@ fn settings_activate(app: &mut App) {
             app.dialog = Some(crate::app::ConfirmDialog::uninstall_component(name));
         }
         crate::ui::SettingsAction::None => {}
+    }
+}
+
+/// Starts a background transition if old and new games differ and both have loaded backgrounds.
+fn start_bg_transition(app: &mut App, old_game: crate::game::GameId) {
+    let new_game = app.selected_game();
+    if old_game != new_game
+        && app.backgrounds.contains_key(&old_game)
+        && app.backgrounds.contains_key(&new_game)
+    {
+        app.bg_transition = Some(BgTransition::new(old_game));
     }
 }
