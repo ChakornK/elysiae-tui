@@ -47,31 +47,23 @@ impl Launcher {
 
         let compat_data = self.data_dir.join("proton-data");
 
-        let command_str = if game.needs_jadeite() {
+        let mut args: Vec<PathBuf> = vec!["run".into()];
+        if game.needs_jadeite() {
             let jadeite_exe = self.data_dir.join("jadeite").join("jadeite.exe");
             if !jadeite_exe.exists() {
                 return Err(LaunchError::JadeiteMissing(jadeite_exe));
             }
-            format!(
-                "{} run {} {}",
-                proton_bin.display(),
-                jadeite_exe.display(),
-                exe_path.display()
-            )
-        } else {
-            format!("{} run {}", proton_bin.display(), exe_path.display())
-        };
-
-        let compat_str = compat_data.to_string_lossy().to_string();
+            args.push(jadeite_exe);
+        }
+        args.push(exe_path);
 
         tokio::spawn(async move {
             use tokio::io::{AsyncBufReadExt, BufReader};
             use tokio::process::Command;
 
-            let mut child = match Command::new("sh")
-                .arg("-c")
-                .arg(&command_str)
-                .env("STEAM_COMPAT_DATA_PATH", &compat_str)
+            let mut child = match Command::new(&proton_bin)
+                .args(&args)
+                .env("STEAM_COMPAT_DATA_PATH", &compat_data)
                 .env("STEAM_COMPAT_CLIENT_INSTALL_PATH", "")
                 .env("__NV_DISABLE_EXPLICIT_SYNC", "1")
                 .stdout(std::process::Stdio::piped())
