@@ -208,6 +208,21 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     continue;
                 }
 
+                // Any key dismisses help overlay
+                if app.show_help {
+                    app.show_help = false;
+                    continue;
+                }
+
+                // Cancel confirmation: y confirms, anything else dismisses
+                if app.show_cancel_confirm {
+                    if key.code == crossterm::event::KeyCode::Char('y') {
+                        app.finish_download();
+                    }
+                    app.show_cancel_confirm = false;
+                    continue;
+                }
+
                 input::handle_key(
                     &mut app,
                     key.code,

@@ -124,6 +124,22 @@ pub fn draw(frame: &mut Frame, app: &App) {
         darken_full_window(frame);
         draw_modal(frame, outer[1], "Info", msg, WARNING);
     }
+
+    if app.show_help {
+        darken_full_window(frame);
+        draw_help_overlay(frame, area);
+    }
+
+    if app.show_cancel_confirm {
+        darken_full_window(frame);
+        draw_modal(
+            frame,
+            outer[1],
+            "Confirm",
+            "Cancel download? (y/n)",
+            WARNING,
+        );
+    }
 }
 
 /// Darkens the entire window with 70% #1a1a1a overlay.
@@ -189,6 +205,70 @@ fn draw_modal(frame: &mut Frame, area: Rect, title: &str, message: &str, color: 
     )));
 
     frame.render_widget(Paragraph::new(lines), inner);
+}
+
+/// Draws a centered help overlay listing key bindings.
+fn draw_help_overlay(frame: &mut Frame, area: Rect) {
+    let help_text = vec![
+        Line::from(Span::styled(
+            "Key Bindings",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(Span::styled(
+            "─────────────",
+            Style::default().fg(TEXT_MUTED),
+        )),
+        Line::from(Span::styled("q        quit", Style::default().fg(TEXT))),
+        Line::from(Span::styled(
+            "←/→/Tab  switch game",
+            Style::default().fg(TEXT),
+        )),
+        Line::from(Span::styled(
+            "1-4      select game",
+            Style::default().fg(TEXT),
+        )),
+        Line::from(Span::styled(
+            "Enter    download/launch",
+            Style::default().fg(TEXT),
+        )),
+        Line::from(Span::styled("v        verify", Style::default().fg(TEXT))),
+        Line::from(Span::styled(
+            "p        preinstall",
+            Style::default().fg(TEXT),
+        )),
+        Line::from(Span::styled(
+            "a        apply preinstall",
+            Style::default().fg(TEXT),
+        )),
+        Line::from(Span::styled("s        settings", Style::default().fg(TEXT))),
+        Line::from(Span::styled(
+            "c        cancel download",
+            Style::default().fg(TEXT),
+        )),
+        Line::from(Span::styled(
+            "?        this help",
+            Style::default().fg(TEXT),
+        )),
+        Line::from(Span::styled("Esc      back", Style::default().fg(TEXT))),
+        Line::from(""),
+        Line::from(Span::styled(
+            "[any key] Close",
+            Style::default().fg(TEXT_MUTED),
+        )),
+    ];
+
+    let overlay_w = 34u16.min(area.width.saturating_sub(4));
+    let overlay_h = (help_text.len() as u16 + 2).min(area.height.saturating_sub(2));
+    let overlay_rect = Rect::new(
+        area.x + (area.width.saturating_sub(overlay_w)) / 2,
+        area.y + (area.height.saturating_sub(overlay_h)) / 2,
+        overlay_w,
+        overlay_h,
+    );
+
+    render_container(frame, overlay_rect, None);
+    let inner = shrink(overlay_rect, 2, 1);
+    frame.render_widget(Paragraph::new(help_text), inner);
 }
 
 fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {

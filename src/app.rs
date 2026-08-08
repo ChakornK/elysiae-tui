@@ -64,6 +64,8 @@ pub struct App {
     pub status_message: Option<String>,
     pub error_message: Option<String>,
     pub show_resume_prompt: bool,
+    pub show_help: bool,
+    pub show_cancel_confirm: bool,
     pub backgrounds: HashMap<GameId, QuadrantImage>,
     pub ready_to_launch: bool,
     /// Game launch log lines (ring buffer, max 1000)
@@ -90,6 +92,8 @@ impl App {
             status_message: None,
             error_message: None,
             show_resume_prompt: false,
+            show_help: false,
+            show_cancel_confirm: false,
             backgrounds: HashMap::new(),
             ready_to_launch: false,
             launch_log: VecDeque::new(),

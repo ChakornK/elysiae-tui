@@ -50,7 +50,7 @@ async fn handle_main(
                 return Ok(());
             }
             KeyCode::Char('c') => {
-                app.finish_download();
+                app.show_cancel_confirm = true;
                 return Ok(());
             }
             _ => {}
@@ -146,6 +146,9 @@ async fn handle_main(
             }
         }
         KeyCode::Char('s') => app.current_view = View::Settings,
+        KeyCode::Char('?') => {
+            app.show_help = true;
+        }
         _ => {}
     }
     Ok(())
