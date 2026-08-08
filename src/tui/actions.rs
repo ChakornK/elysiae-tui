@@ -20,6 +20,10 @@ pub fn start_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sen
         Some(p) => p,
         None => {
             let default = default_install_path(game);
+            if let Err(e) = std::fs::create_dir_all(&default) {
+                app.error_message = Some(format!("cannot create install directory: {e}"));
+                return;
+            }
             app.config.game_config(game).install_path = Some(default.clone());
             let _ = app.config.save();
             default
@@ -61,7 +65,10 @@ pub fn start_resume(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
         Some(ref p) => p.clone(),
         None => {
             let default = crate::config::app_data_dir().join(game.as_str());
-            let _ = std::fs::create_dir_all(&default);
+            if let Err(e) = std::fs::create_dir_all(&default) {
+                app.error_message = Some(format!("cannot create install directory: {e}"));
+                return;
+            }
             app.config.game_config(game).install_path = Some(default.clone());
             let _ = app.config.save();
             default
