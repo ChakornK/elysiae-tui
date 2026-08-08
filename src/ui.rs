@@ -203,25 +203,25 @@ fn draw_modal(frame: &mut Frame, area: Rect, title: &str, message: &str, color: 
 
 /// Draws a confirm dialog with selectable Yes/No buttons.
 fn draw_confirm_dialog(frame: &mut Frame, area: Rect, dialog: &crate::app::ConfirmDialog) {
+    let bg_img: Option<&QuadrantImage> = None;
     let msg_w = UnicodeWidthStr::width(dialog.message.as_str()).max(24) as u16;
-    let box_w = (msg_w + 6).min(area.width.saturating_sub(4));
-    let box_h = 7u16.min(area.height.saturating_sub(2));
-    let box_rect = Rect::new(
-        area.x + (area.width.saturating_sub(box_w)) / 2,
-        area.y + (area.height.saturating_sub(box_h)) / 2,
-        box_w,
-        box_h,
+    let overlay_w = (msg_w + 8).max(30).min(area.width.saturating_sub(4));
+    let overlay_h = 7u16.min(area.height.saturating_sub(2));
+    let overlay_rect = Rect::new(
+        area.x + (area.width.saturating_sub(overlay_w)) / 2,
+        area.y + (area.height.saturating_sub(overlay_h)) / 2,
+        overlay_w,
+        overlay_h,
     );
 
-    // Background
-    let bg = ratatui::widgets::Block::default()
-        .style(Style::default().bg(CONTAINER_BG));
-    frame.render_widget(bg, box_rect);
-
-    let inner = Rect::new(box_rect.x + 2, box_rect.y + 1, box_rect.width.saturating_sub(4), box_rect.height.saturating_sub(2));
+    render_container(frame, overlay_rect, bg_img);
+    let inner = shrink(overlay_rect, 2, 1);
 
     // Title
-    let title_line = Line::from(Span::styled(&dialog.title, Style::default().fg(WARNING).add_modifier(Modifier::BOLD)));
+    let title_line = Line::from(Span::styled(
+        &dialog.title,
+        Style::default().fg(WARNING).add_modifier(Modifier::BOLD),
+    ));
     frame.render_widget(Paragraph::new(title_line), Rect::new(inner.x, inner.y, inner.width, 1));
 
     // Message
@@ -230,7 +230,7 @@ fn draw_confirm_dialog(frame: &mut Frame, area: Rect, dialog: &crate::app::Confi
 
     // Buttons row
     let btn_y = inner.y + 4;
-    if btn_y < box_rect.bottom() {
+    if btn_y < overlay_rect.bottom() {
         let yes_style = if dialog.selected == 0 {
             Style::default().fg(Color::Rgb(10, 10, 15)).bg(ACCENT).add_modifier(Modifier::BOLD)
         } else {
