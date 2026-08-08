@@ -472,3 +472,76 @@ pub fn uninstall_component(app: &mut App, component: &str) -> Result<(), String>
     let _ = app.config.save();
     Ok(())
 }
+
+/// Applies VO language changes: downloads newly enabled languages, removes disabled ones.
+pub fn apply_vo_changes(
+    app: &mut App,
+    client: &reqwest::Client,
+    progress_tx: &Sender<SophonProgress>,
+    game: GameId,
+    new_langs: &[String],
+    old_langs: &[String],
+) {
+    let gc = app.config.game_config(game).clone();
+    let Some(ref path) = gc.install_path else { return };
+
+    let added: Vec<String> = new_langs.iter()
+        .filter(|l| !old_langs.contains(l))
+        .cloned()
+        .collect();
+    let removed: Vec<String> = old_langs.iter()
+        .filter(|l| !new_langs.contains(l))
+        .cloned()
+        .collect();
+
+    if added.is_empty() && removed.is_empty() {
+        return;
+    }
+
+    // Remove audio files for disabled languages
+    let game_dir = path.clone();
+    if !removed.is_empty() {
+        let dir = game_dir.clone();
+        tokio::spawn(async move {
+            for lang in &removed {
+                remove_vo_files(&dir, lang);
+            }
+        });
+    }
+
+    // Download newly enabled languages via verify (fetches missing audio assets)
+    if !added.is_empty() {
+        let handle = DownloadHandle::new();
+        app.start_download(game, handle.clone(), "Downloading VOs...");
+        let client = client.clone();
+        let tx = progress_tx.clone();
+        let path_str = path.to_string_lossy().to_string();
+        tokio::spawn(async move {
+            let ops = Operations::new(client, crate::config::app_data_dir());
+            for lang in &added {
+                if let Err(e) = ops.verify(game, lang, &path_str, tx.clone()).await {
+                    let msg = e.to_string();
+                    if !msg.to_lowercase().contains("cancel") {
+                        let _ = tx.send(SophonProgress::Error { message: format!("VO download failed for {lang}: {msg}") }).await;
+                        return;
+                    }
+                }
+            }
+            let _ = tx.send(SophonProgress::Finished).await;
+        });
+    }
+}
+
+/// Removes voice-over audio files for a specific language from the game directory.
+fn remove_vo_files(game_dir: &std::path::Path, lang: &str) {
+    let audio_dirs = [
+        game_dir.join(format!("Audio_{lang}")),
+        game_dir.join("StreamingAssets").join(format!("Audio_{lang}")),
+        game_dir.join("persistent").join(format!("Audio_{lang}")),
+    ];
+    for dir in &audio_dirs {
+        if dir.exists() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+    }
+}

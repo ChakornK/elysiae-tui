@@ -222,42 +222,13 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     crossterm::event::KeyCode::Enter => {
                         let modal = app.vo_modal.take().unwrap();
                         let new_langs = modal.selected_langs();
-                        let gc = app.config.game_config(modal.game);
-                        gc.vo_langs = new_langs;
+                        let game = modal.game;
+                        let old_langs = app.config.game_config(game).vo_langs.clone();
+                        app.config.game_config(game).vo_langs = new_langs.clone();
                         let _ = app.config.save();
-                    }
-                    crossterm::event::KeyCode::Esc => {
-                        app.vo_modal = None;
-                    }
-                    _ => {}
-                }
-                continue;
-            }
-
-            // VO modal: intercepts before dialog
-            if app.vo_modal.is_some() {
-                match key.code {
-                    crossterm::event::KeyCode::Up => {
-                        if let Some(ref mut m) = app.vo_modal {
-                            m.cursor = m.cursor.checked_sub(1).unwrap_or(4);
-                        }
-                    }
-                    crossterm::event::KeyCode::Down => {
-                        if let Some(ref mut m) = app.vo_modal {
-                            m.cursor = (m.cursor + 1) % 5;
-                        }
-                    }
-                    crossterm::event::KeyCode::Char(' ') => {
-                        if let Some(ref mut m) = app.vo_modal {
-                            m.toggle_current();
-                        }
-                    }
-                    crossterm::event::KeyCode::Enter => {
-                        let modal = app.vo_modal.take().unwrap();
-                        let new_langs = modal.selected_langs();
-                        let gc = app.config.game_config(modal.game);
-                        gc.vo_langs = new_langs;
-                        let _ = app.config.save();
+                        actions::apply_vo_changes(
+                            &mut app, &client, &progress_tx, game, &new_langs, &old_langs,
+                        );
                     }
                     crossterm::event::KeyCode::Esc => {
                         app.vo_modal = None;
