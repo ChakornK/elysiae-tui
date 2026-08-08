@@ -128,7 +128,19 @@ async fn fetch_games(client: &reqwest::Client) -> Option<Vec<GameEntry>> {
     resp.data.map(|d| d.games)
 }
 
+/// Max background image size (20 MB) to prevent OOM on malformed responses.
+const MAX_BG_SIZE: u64 = 20 * 1024 * 1024;
+
 async fn download_file(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
     let resp = client.get(url).send().await?.error_for_status()?;
-    resp.bytes().await.map(|b| b.to_vec())
+    if let Some(len) = resp.content_length() {
+        if len > MAX_BG_SIZE {
+            return Ok(Vec::new());
+        }
+    }
+    let bytes = resp.bytes().await?;
+    if bytes.len() as u64 > MAX_BG_SIZE {
+        return Ok(Vec::new());
+    }
+    Ok(bytes.to_vec())
 }
