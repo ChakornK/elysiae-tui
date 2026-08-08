@@ -186,6 +186,8 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let path_str = install_path.to_string_lossy();
             let info = ops.check_update(game, &vo_lang, &path_str).await?;
             let tag = info.preinstall_tag.ok_or("no preinstall tag available")?;
+            irmin::game_installer::validate_asset_name(&tag)
+                .map_err(|e| format!("invalid preinstall tag: {e}"))?;
             ops.apply_preinstall(&tag, &path_str, &handle, tx).await?;
             println!("Preinstall applied.");
         }
