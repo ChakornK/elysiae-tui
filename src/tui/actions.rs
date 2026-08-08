@@ -11,21 +11,6 @@ use crate::components::{ComponentManager, ComponentProgress};
 use crate::game::GameId;
 use crate::operations::Operations;
 
-/// Fetches update info for the active game and stores it in app state.
-pub async fn refresh_update_info(app: &mut App, client: &reqwest::Client) {
-    let game = app.active_game;
-    let gc = app.config.game_config(game).clone();
-    if let Some(ref path) = gc.install_path {
-        let ops = Operations::new(client.clone());
-        let path_str = path.to_string_lossy().to_string();
-        if let Ok(info) = ops.check_update(game, &gc.vo_lang, &path_str).await {
-            if let Some(gs) = app.games.get_mut(&game) {
-                gs.update_info = Some(info);
-            }
-        }
-    }
-}
-
 /// Spawns a fresh download task for the active game.
 pub fn start_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
     let game = app.active_game;
@@ -128,7 +113,7 @@ pub fn launch_game(
     };
 
     let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+        .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
         .join("elysiae-tui");
     let launcher = crate::launcher::Launcher::new(data_dir);
 
@@ -154,7 +139,7 @@ pub fn prepare_and_launch(
 ) {
     let game = app.active_game;
     let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+        .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
         .join("elysiae-tui");
 
     use crate::components::{proton_available, jadeite_available};
@@ -206,7 +191,7 @@ fn spawn_operation(
     let client = client.clone();
     tokio::spawn(async move {
         let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
             .join("elysiae-tui");
 
         // Auto-install components before any download operation
@@ -389,7 +374,7 @@ async fn install_component_with_progress(
 
 fn default_install_path(game: GameId) -> PathBuf {
     dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("~/.local/share"))
+        .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
         .join("elysiae-tui")
         .join("games")
         .join(game.as_str())

@@ -6,6 +6,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::game::GameId;
 
+/// Expands a home-relative subpath using the actual HOME directory.
+pub(crate) fn fallback_home_join(subpath: &str) -> PathBuf {
+    dirs::home_dir()
+        .expect("HOME environment variable must be set")
+        .join(subpath)
+}
+
+pub const VALID_LANGS: &[&str] = &["en-us", "ja-jp", "zh-cn", "zh-tw", "ko-kr"];
+
+pub fn validate_vo_lang(lang: &str) -> Result<(), ConfigError> {
+    if VALID_LANGS.contains(&lang) {
+        Ok(())
+    } else {
+        Err(ConfigError::InvalidLang(lang.to_string()))
+    }
+}
+
 /// Top-level persisted configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Config {
@@ -48,7 +65,12 @@ impl Config {
     pub fn load() -> Self {
         let path = Self::path();
         match fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|_| Self::default()),
+            Ok(contents) => serde_json::from_str(&contents).unwrap_or_else(|_| {
+                if let Ok(preserved) = crate::atomic::preserve_corrupt(&path) {
+                    tracing::warn!("corrupt config preserved as {}", preserved.display());
+                }
+                Self::default()
+            }),
             Err(_) => Self::default(),
         }
     }
@@ -60,14 +82,14 @@ impl Config {
             fs::create_dir_all(parent).map_err(ConfigError::Io)?;
         }
         let json = serde_json::to_string_pretty(self).map_err(ConfigError::Serialize)?;
-        fs::write(&path, json).map_err(ConfigError::Io)?;
+        crate::atomic::atomic_write(&path, json.as_bytes()).map_err(ConfigError::Io)?;
         Ok(())
     }
 
     /// Returns the config file path under XDG_CONFIG_HOME.
     pub fn path() -> PathBuf {
         dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("~/.config"))
+            .unwrap_or_else(|| fallback_home_join(".config"))
             .join(CONFIG_DIR_NAME)
             .join(CONFIG_FILE_NAME)
     }
@@ -109,6 +131,8 @@ pub enum ConfigError {
     Io(std::io::Error),
     #[error("serialization error: {0}")]
     Serialize(serde_json::Error),
+    #[error("invalid voice-over language: {0}")]
+    InvalidLang(String),
 }
 
 #[cfg(test)]

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use irmin::game_installer::UpdateInfo;
 use irmin::{DownloadHandle, SophonProgress};
@@ -67,7 +67,7 @@ pub struct App {
     pub backgrounds: HashMap<GameId, QuadrantImage>,
     pub ready_to_launch: bool,
     /// Game launch log lines (ring buffer, max 1000)
-    pub launch_log: Vec<String>,
+    pub launch_log: VecDeque<String>,
     /// Scroll offset for launch log display
     pub launch_log_scroll: usize,
     /// Whether a game is currently running
@@ -92,7 +92,7 @@ impl App {
             show_resume_prompt: false,
             backgrounds: HashMap::new(),
             ready_to_launch: false,
-            launch_log: Vec::new(),
+            launch_log: VecDeque::new(),
             launch_log_scroll: 0,
             game_running: false,
             launch_log_game: None,
@@ -173,12 +173,11 @@ impl App {
                 eta_seconds,
             } => {
                 // Discard stale events (progress going backwards = from a cancelled task)
-                if let Some(ref existing) = dl.download_progress {
-                    if downloaded_bytes < existing.downloaded_bytes
-                        && total_bytes == existing.total_bytes
-                    {
-                        return;
-                    }
+                if let Some(ref existing) = dl.download_progress
+                    && downloaded_bytes < existing.downloaded_bytes
+                    && total_bytes == existing.total_bytes
+                {
+                    return;
                 }
                 dl.status_label = None;
                 dl.download_progress = Some(DownloadPhase {
@@ -296,7 +295,7 @@ impl App {
 
         // Remove partial component archives so next install starts clean
         let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
             .join("elysiae-tui");
         let _ = std::fs::remove_file(data_dir.join("proton.archive"));
         let _ = std::fs::remove_file(data_dir.join("jadeite.archive"));
@@ -316,7 +315,7 @@ impl App {
     fn sync_component_versions(&mut self) {
         use crate::components::read_component_tag;
         let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
             .join("elysiae-tui");
         let proton = read_component_tag(&data_dir, "proton");
         let jadeite = read_component_tag(&data_dir, "jadeite");
