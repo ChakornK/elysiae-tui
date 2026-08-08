@@ -88,12 +88,4 @@ impl Operations {
             Arc::new(move |p| { let _ = tx.try_send(p); });
         irmin::sophon_verify_integrity(&self.client, game.as_str(), vo_lang, output_path, on_progress).await
     }
-
-    pub fn has_resume_state(&self, state_dir: &str) -> bool {
-        irmin::sophon_has_resume_state(state_dir)
-    }
-
-    pub fn get_resume_info(&self, state_dir: &str) -> Option<irmin::types::ResumeInfo> {
-        irmin::sophon_get_resume_info(state_dir)
-    }
 }

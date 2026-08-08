@@ -94,10 +94,10 @@ impl Backgrounds {
                 let _ = fs::create_dir_all(parent);
             }
 
-            if let Ok(bytes) = download_file(client, &entry.display.background.url).await {
-                if fs::write(&local_path, &bytes).is_ok() {
-                    self.paths.insert(game_id, local_path);
-                }
+            if let Ok(bytes) = download_file(client, &entry.display.background.url).await
+                && fs::write(&local_path, &bytes).is_ok()
+            {
+                self.paths.insert(game_id, local_path);
             }
         }
     }
@@ -120,6 +120,8 @@ async fn fetch_games(client: &reqwest::Client) -> Option<Vec<GameEntry>> {
         .send()
         .await
         .ok()?
+        .error_for_status()
+        .ok()?
         .json()
         .await
         .ok()?;
@@ -127,6 +129,6 @@ async fn fetch_games(client: &reqwest::Client) -> Option<Vec<GameEntry>> {
 }
 
 async fn download_file(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
-    let resp = client.get(url).send().await?;
+    let resp = client.get(url).send().await?.error_for_status()?;
     resp.bytes().await.map(|b| b.to_vec())
 }

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use serde::Deserialize;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc::Sender;
 
 /// Progress events for component downloads.
@@ -16,18 +17,8 @@ pub enum ComponentProgress {
 #[derive(Debug, Deserialize)]
 struct ModuleData {
     download_url: String,
-    #[allow(dead_code)]
     hash: String,
     tag: String,
-}
-
-/// Returns the architecture suffix used in Aedes download URLs.
-fn current_arch_suffix() -> &'static str {
-    if cfg!(target_arch = "aarch64") {
-        "aarch64"
-    } else {
-        "x86_64"
-    }
 }
 
 /// Selects the appropriate module entry for the current architecture.
@@ -100,13 +91,13 @@ impl ComponentManager {
         tx: Sender<ComponentProgress>,
     ) -> Result<String, ComponentError> {
         let url = format!("{}/{}.json", AEDES_BASE, name);
-        let meta: Vec<ModuleData> = self.client.get(&url).send().await?.json().await?;
+        let meta: Vec<ModuleData> = self.client.get(&url).send().await?.error_for_status()?.json().await?;
         let module = meta.first().ok_or_else(|| {
             ComponentError::Other(format!("no metadata available for {}", name))
         })?;
 
         let download_url = resolve_download_url(module, name);
-        let mut response = self.client.get(&download_url).send().await?;
+        let mut response = self.client.get(&download_url).send().await?.error_for_status()?;
         let total = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
 
@@ -115,13 +106,12 @@ impl ComponentManager {
 
         // Ensure parent dir exists but don't create dest_dir yet (extraction creates it)
         if let Some(parent) = archive_path.parent() {
-            std::fs::create_dir_all(parent)?;
+            tokio::fs::create_dir_all(parent).await?;
         }
-        let mut file = std::fs::File::create(&archive_path)?;
+        let mut file = tokio::fs::File::create(&archive_path).await?;
 
-        use std::io::Write;
         while let Some(chunk) = response.chunk().await? {
-            file.write_all(&chunk)?;
+            file.write_all(&chunk).await?;
             downloaded += chunk.len() as u64;
             let _ = tx.try_send(ComponentProgress::Downloading {
                 downloaded_bytes: downloaded,
@@ -131,6 +121,9 @@ impl ComponentManager {
         drop(file);
 
         // Verify download completed fully — partial files cause corrupt extraction
+        if total == 0 {
+            tracing::warn!("server did not provide Content-Length, skipping size verification");
+        }
         if total > 0 && downloaded != total {
             let _ = std::fs::remove_file(&archive_path);
             return Err(ComponentError::Other(format!(
@@ -170,12 +163,13 @@ impl ComponentManager {
         if name == "jadeite" {
             let script = dest_dir.join("block_analytics.sh");
             if script.exists() {
-                let status = std::process::Command::new("sh")
+                let status = tokio::process::Command::new("sh")
                     .arg(&script)
                     .current_dir(&dest_dir)
                     .stdout(std::process::Stdio::null())
                     .stderr(std::process::Stdio::null())
-                    .status()?;
+                    .status()
+                    .await?;
                 if !status.success() {
                     let _ = std::fs::remove_dir_all(&dest_dir);
                     return Err(ComponentError::Other(
@@ -220,7 +214,7 @@ pub async fn component_needs_update(
         None => return false, // Not installed — handled by availability checks
     };
     let url = format!("{}/{}.json", AEDES_BASE, name);
-    let meta: Vec<ModuleData> = match client.get(&url).send().await.and_then(|r| Ok(r)) {
+    let meta: Vec<ModuleData> = match client.get(&url).send().await {
         Ok(resp) => match resp.json().await {
             Ok(m) => m,
             Err(_) => return false,

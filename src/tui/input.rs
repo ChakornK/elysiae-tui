@@ -32,7 +32,7 @@ async fn handle_main(
     key: KeyCode,
     client: &reqwest::Client,
     progress_tx: &Sender<SophonProgress>,
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    _terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Download controls take priority when active
     if app.download.is_some() {
