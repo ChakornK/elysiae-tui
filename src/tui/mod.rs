@@ -7,8 +7,6 @@ use std::io;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyEventKind};
-use crossterm::execute;
-use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode};
 use irmin::SophonProgress;
 use irmin::game_installer::UpdateInfo;
 use ratatui::Terminal;
@@ -26,17 +24,13 @@ use crate::ui;
 
 /// Runs the interactive TUI event loop.
 pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
-    // Suppress panic output to prevent terminal corruption
-    std::panic::set_hook(Box::new(|_| {}));
-
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
-    let backend = CrosstermBackend::new(stdout);
+    guard::install_panic_hook();
+    let _guard = guard::TerminalGuard::new()?;
+    let backend = CrosstermBackend::new(io::stdout());
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new(config);
-    let client = reqwest::Client::new();
+    let client = crate::http::build_client();
     let (progress_tx, mut progress_rx) = mpsc::channel::<SophonProgress>(128);
     let (log_tx, mut log_rx) = mpsc::channel::<String>(256);
     let mut term_size = crossterm::terminal::size().unwrap_or((80, 24));
@@ -63,7 +57,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     {
         use crate::components::{proton_available, jadeite_available, read_component_tag};
         let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"))
+            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
             .join("elysiae-tui");
         let proton_tag = read_component_tag(&data_dir, "proton")
             .or_else(|| if proton_available(&data_dir) { Some("installed".to_owned()) } else { None });
@@ -236,9 +230,9 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 app.game_running = false;
                 continue;
             }
-            app.launch_log.push(line);
+            app.launch_log.push_back(line);
             if app.launch_log.len() > 1000 {
-                app.launch_log.remove(0);
+                app.launch_log.pop_front();
             }
             // Auto-scroll to bottom
             let visible = 8usize;
@@ -259,9 +253,6 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
     }
-
-    disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
 
     app.config.selected_game = app.active_game;
     let _ = app.config.save();
@@ -343,14 +334,14 @@ fn encode_missing(
 
 fn bg_cache_dir() -> std::path::PathBuf {
     dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("~/.cache"))
+        .unwrap_or_else(|| crate::config::fallback_home_join(".cache"))
         .join("elysiae-tui")
         .join("backgrounds")
 }
 
 fn quadrant_cache_dir() -> std::path::PathBuf {
     dirs::cache_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("~/.cache"))
+        .unwrap_or_else(|| crate::config::fallback_home_join(".cache"))
         .join("elysiae-tui")
         .join("quadrant")
 }
