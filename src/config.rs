@@ -50,10 +50,68 @@ fn default_true() -> bool {
 }
 
 /// Per-game settings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GameConfig {
-    pub vo_lang: String,
+    pub vo_langs: Vec<String>,
     pub install_path: Option<PathBuf>,
+}
+
+impl GameConfig {
+    /// Returns the primary VO language (first in list, fallback "en-us").
+    pub fn primary_vo_lang(&self) -> &str {
+        self.vo_langs.first().map(|s| s.as_str()).unwrap_or("en-us")
+    }
+}
+
+/// Returns a human-readable name for a VO language code.
+pub fn lang_display_name(code: &str) -> &str {
+    match code {
+        "en-us" => "English",
+        "ja-jp" => "Japanese",
+        "zh-cn" => "Chinese (Simplified)",
+        "zh-tw" => "Chinese (Traditional)",
+        "ko-kr" => "Korean",
+        _ => code,
+    }
+}
+
+/// Custom deserialization: accepts both old `vo_lang: String` and new `vo_langs: Vec<String>`.
+impl<'de> Deserialize<'de> for GameConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Raw {
+            #[serde(default)]
+            vo_lang: Option<String>,
+            #[serde(default)]
+            vo_langs: Option<Vec<String>>,
+            install_path: Option<PathBuf>,
+        }
+        let raw = Raw::deserialize(deserializer)?;
+        let vo_langs = match raw.vo_langs {
+            Some(langs) if !langs.is_empty() => langs,
+            _ => vec![raw.vo_lang.unwrap_or_else(|| "en-us".to_owned())],
+        };
+        Ok(GameConfig {
+            vo_langs,
+            install_path: raw.install_path,
+        })
+    }
+}
+
+impl Serialize for GameConfig {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut s = serializer.serialize_struct("GameConfig", 2)?;
+        s.serialize_field("vo_langs", &self.vo_langs)?;
+        s.serialize_field("install_path", &self.install_path)?;
+        s.end()
+    }
 }
 
 /// Tracks installed versions of runtime components.
@@ -126,7 +184,7 @@ impl Default for Config {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
-            vo_lang: "en-us".to_owned(),
+            vo_langs: vec!["en-us".to_owned()],
             install_path: None,
         }
     }
@@ -169,7 +227,7 @@ mod tests {
     fn arb_game_config() -> impl Strategy<Value = GameConfig> {
         (arb_vo_lang(), proptest::option::of("[a-z/]{1,30}")).prop_map(|(vo_lang, path)| {
             GameConfig {
-                vo_lang,
+                vo_langs: vec![vo_lang],
                 install_path: path.map(PathBuf::from),
             }
         })

@@ -145,7 +145,13 @@ async fn handle_main(
                 actions::apply_preinstall(app, client, progress_tx);
             }
         }
-        KeyCode::Char('s') => app.current_view = View::Settings,
+        KeyCode::Char('s') => {
+            app.current_view = View::Settings;
+            // Initialize cursor to first selectable item
+            let items = crate::ui::build_settings_items_pub(app);
+            app.settings.cursor = items.iter().position(|(s, _)| *s).unwrap_or(0);
+            app.settings.item_count = items.len();
+        }
         KeyCode::Char('?') => {
             app.show_help = true;
         }
@@ -155,8 +161,47 @@ async fn handle_main(
 }
 
 fn handle_settings(app: &mut App, key: KeyCode, _client: &reqwest::Client, _progress_tx: &Sender<SophonProgress>) -> Result<(), Box<dyn std::error::Error>> {
-    if key == KeyCode::Esc {
-        app.current_view = View::GameList;
+    match key {
+        KeyCode::Esc => app.current_view = View::GameList,
+        KeyCode::Up => settings_move_cursor(app, -1),
+        KeyCode::Down => settings_move_cursor(app, 1),
+        KeyCode::Enter => settings_activate(app),
+        _ => {}
     }
     Ok(())
+}
+
+fn settings_move_cursor(app: &mut App, direction: i32) {
+    let items = crate::ui::build_settings_items_pub(app);
+    if items.is_empty() { return; }
+    let len = items.len();
+    let mut pos = app.settings.cursor as i32;
+    loop {
+        pos += direction;
+        if pos < 0 { pos = len as i32 - 1; }
+        if pos >= len as i32 { pos = 0; }
+        if items[pos as usize].0 { break; }
+        // Safety: at least one selectable item always exists (components)
+    }
+    app.settings.cursor = pos as usize;
+}
+
+fn settings_activate(app: &mut App) {
+    let items = crate::ui::build_settings_items_pub(app);
+    let Some((_selectable, kind)) = items.get(app.settings.cursor) else { return };
+    match kind {
+        crate::ui::SettingsAction::ManageVos(game) => {
+            let game = *game;
+            let gc = app.config.game_config(game);
+            app.vo_modal = Some(crate::app::VoManagerModal::new(game, &gc.vo_langs));
+        }
+        crate::ui::SettingsAction::UninstallGame(game) => {
+            let game = *game;
+            app.dialog = Some(crate::app::ConfirmDialog::uninstall_game(&game.display_name(), game));
+        }
+        crate::ui::SettingsAction::UninstallComponent(name) => {
+            app.dialog = Some(crate::app::ConfirmDialog::uninstall_component(name));
+        }
+        crate::ui::SettingsAction::None => {}
+    }
 }

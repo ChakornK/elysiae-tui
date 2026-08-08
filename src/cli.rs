@@ -88,7 +88,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                     // Persist the install path for future operations
                     let gc = config.game_config(game);
                     gc.install_path = Some(path);
-                    gc.vo_lang = lang;
+                    gc.vo_langs = vec![lang];
                     config.save()?;
                     println!("Download complete.");
                 }
@@ -104,7 +104,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                     crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
                     l
                 }
-                None => gc.vo_lang.clone(),
+                None => gc.primary_vo_lang().to_owned(),
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
@@ -136,7 +136,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                     crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
                     l
                 }
-                None => gc.vo_lang.clone(),
+                None => gc.primary_vo_lang().to_owned(),
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
@@ -168,7 +168,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                     crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
                     l
                 }
-                None => gc.vo_lang.clone(),
+                None => gc.primary_vo_lang().to_owned(),
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
@@ -198,7 +198,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                     crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
                     l
                 }
-                None => gc.vo_lang.clone(),
+                None => gc.primary_vo_lang().to_owned(),
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
@@ -234,7 +234,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                     crate::config::validate_vo_lang(&l).map_err(|e| e.to_string())?;
                     l
                 }
-                None => gc.vo_lang.clone(),
+                None => gc.primary_vo_lang().to_owned(),
             };
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 

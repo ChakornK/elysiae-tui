@@ -15,10 +15,10 @@ use crate::operations::Operations;
 pub fn start_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
     let game = app.active_game;
     let gc = app.config.game_config(game).clone();
+    let vo_lang = gc.primary_vo_lang().to_owned();
     let path = match gc.install_path {
         Some(p) => p,
         None => {
-            // Auto-assign a default install path
             let default = default_install_path(game);
             app.config.game_config(game).install_path = Some(default.clone());
             let _ = app.config.save();
@@ -27,7 +27,7 @@ pub fn start_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sen
     };
     let handle = DownloadHandle::new();
     app.start_download(game, handle.clone(), "Downloading...");
-    spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Download);
+    spawn_operation(client, game, vo_lang, path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Download);
 }
 
 /// Spawns an update task for the active game.
@@ -37,7 +37,7 @@ pub fn start_update(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();
         app.start_download(game, handle.clone(), "Updating...");
-        spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Update);
+        spawn_operation(client, game, gc.primary_vo_lang().to_owned(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Update);
     }
 }
 
@@ -48,7 +48,7 @@ pub fn start_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();
         app.start_download(game, handle.clone(), "Preinstalling...");
-        spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Preinstall);
+        spawn_operation(client, game, gc.primary_vo_lang().to_owned(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Preinstall);
     }
 }
 
@@ -89,7 +89,7 @@ pub fn start_resume(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
 
     let handle = DownloadHandle::new();
     app.start_download(game, handle.clone(), op_label);
-    spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), op);
+    spawn_operation(client, game, gc.primary_vo_lang().to_owned(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), op);
 }
 
 /// Applies a previously downloaded preinstall patch.
@@ -135,7 +135,7 @@ pub fn start_verify(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();
         app.start_download(game, handle.clone(), "Verifying...");
-        spawn_operation(client, game, gc.vo_lang.clone(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Verify);
+        spawn_operation(client, game, gc.primary_vo_lang().to_owned(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Verify);
     }
 }
 
@@ -424,4 +424,51 @@ fn default_install_path(game: GameId) -> PathBuf {
         .join("elysiae-tui")
         .join("games")
         .join(game.as_str())
+}
+
+/// Removes a game's installation directory and clears associated state.
+pub fn uninstall_game(app: &mut App, game: GameId) -> Result<(), String> {
+    let gc = app.config.games.get(&game);
+    let path = gc.and_then(|c| c.install_path.as_ref())
+        .ok_or("no install path configured")?
+        .clone();
+
+    crate::atomic::safe_remove_dir_all(&path)
+        .map_err(|e| format!("failed to remove {}: {e}", path.display()))?;
+
+    let data_dir = crate::config::app_data_dir();
+    let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
+    let _ = std::fs::remove_file(state_path);
+
+    if let Some(gs) = app.games.get_mut(&game) {
+        gs.installed_tag = None;
+        gs.has_resume = false;
+        gs.update_info = None;
+    }
+    app.config.game_config(game).install_path = None;
+    let _ = app.config.save();
+    Ok(())
+}
+
+/// Removes a component (proton or jadeite) and clears config.
+pub fn uninstall_component(app: &mut App, component: &str) -> Result<(), String> {
+    let data_dir = crate::config::app_data_dir();
+    match component {
+        "proton" => {
+            crate::atomic::safe_remove_dir_all(&data_dir.join("proton"))
+                .map_err(|e| format!("proton: {e}"))?;
+            let _ = crate::atomic::safe_remove_dir_all(&data_dir.join("proton-data"));
+            let _ = std::fs::remove_file(data_dir.join("proton.tag"));
+            app.config.installed_components.proton = None;
+        }
+        "jadeite" => {
+            crate::atomic::safe_remove_dir_all(&data_dir.join("jadeite"))
+                .map_err(|e| format!("jadeite: {e}"))?;
+            let _ = std::fs::remove_file(data_dir.join("jadeite.tag"));
+            app.config.installed_components.jadeite = None;
+        }
+        _ => return Err("unknown component".to_string()),
+    }
+    let _ = app.config.save();
+    Ok(())
 }

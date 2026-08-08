@@ -101,7 +101,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             let path = gc.install_path.as_ref()?.to_string_lossy().to_string();
             // Only check games that are actually installed
             if app.games.get(&game).and_then(|gs| gs.installed_tag.as_ref()).is_some() {
-                Some((game, gc.vo_lang.clone(), path))
+                Some((game, gc.primary_vo_lang().to_owned(), path))
             } else {
                 None
             }
@@ -201,6 +201,72 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 continue;
             }
 
+            // VO manager modal: handles input before dialog
+            if app.vo_modal.is_some() {
+                match key.code {
+                    crossterm::event::KeyCode::Up => {
+                        if let Some(ref mut m) = app.vo_modal {
+                            m.cursor = if m.cursor == 0 { 4 } else { m.cursor - 1 };
+                        }
+                    }
+                    crossterm::event::KeyCode::Down => {
+                        if let Some(ref mut m) = app.vo_modal {
+                            m.cursor = if m.cursor >= 4 { 0 } else { m.cursor + 1 };
+                        }
+                    }
+                    crossterm::event::KeyCode::Char(' ') => {
+                        if let Some(ref mut m) = app.vo_modal {
+                            m.toggle_current();
+                        }
+                    }
+                    crossterm::event::KeyCode::Enter => {
+                        let modal = app.vo_modal.take().unwrap();
+                        let new_langs = modal.selected_langs();
+                        let gc = app.config.game_config(modal.game);
+                        gc.vo_langs = new_langs;
+                        let _ = app.config.save();
+                    }
+                    crossterm::event::KeyCode::Esc => {
+                        app.vo_modal = None;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
+            // VO modal: intercepts before dialog
+            if app.vo_modal.is_some() {
+                match key.code {
+                    crossterm::event::KeyCode::Up => {
+                        if let Some(ref mut m) = app.vo_modal {
+                            m.cursor = m.cursor.checked_sub(1).unwrap_or(4);
+                        }
+                    }
+                    crossterm::event::KeyCode::Down => {
+                        if let Some(ref mut m) = app.vo_modal {
+                            m.cursor = (m.cursor + 1) % 5;
+                        }
+                    }
+                    crossterm::event::KeyCode::Char(' ') => {
+                        if let Some(ref mut m) = app.vo_modal {
+                            m.toggle_current();
+                        }
+                    }
+                    crossterm::event::KeyCode::Enter => {
+                        let modal = app.vo_modal.take().unwrap();
+                        let new_langs = modal.selected_langs();
+                        let gc = app.config.game_config(modal.game);
+                        gc.vo_langs = new_langs;
+                        let _ = app.config.save();
+                    }
+                    crossterm::event::KeyCode::Esc => {
+                        app.vo_modal = None;
+                    }
+                    _ => {}
+                }
+                continue;
+            }
+
             // Confirm dialog: arrow keys move selection, Enter confirms, Esc dismisses
             if app.dialog.is_some() {
                 use crate::app::DialogKind;
@@ -211,17 +277,21 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                     crossterm::event::KeyCode::Right => {
                         if let Some(ref mut d) = app.dialog { d.select_right(); }
                     }
-                    crossterm::event::KeyCode::Char('y') => {
+                    crossterm::event::KeyCode::Char('y') | crossterm::event::KeyCode::Enter => {
                         let dialog = app.dialog.take().unwrap();
-                        match dialog.kind {
-                            DialogKind::CancelDownload => app.finish_download(),
-                        }
-                    }
-                    crossterm::event::KeyCode::Enter => {
-                        let dialog = app.dialog.take().unwrap();
-                        if dialog.confirmed() {
+                        if key.code == crossterm::event::KeyCode::Char('y') || dialog.confirmed() {
                             match dialog.kind {
                                 DialogKind::CancelDownload => app.finish_download(),
+                                DialogKind::UninstallGame(game) => {
+                                    if let Err(e) = actions::uninstall_game(&mut app, game) {
+                                        app.error_message = Some(e);
+                                    }
+                                }
+                                DialogKind::UninstallComponent(ref name) => {
+                                    if let Err(e) = actions::uninstall_component(&mut app, name) {
+                                        app.error_message = Some(e);
+                                    }
+                                }
                             }
                         }
                     }

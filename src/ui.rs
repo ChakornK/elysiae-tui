@@ -9,6 +9,73 @@ use crate::app::{App, View};
 use crate::game::GameId;
 use crate::quadrant::QuadrantImage;
 
+/// Settings view item types.
+#[derive(Debug, Clone)]
+enum SettingsItem {
+    GameHeader(GameId),
+    ManageVos(GameId, usize), // game, count of enabled langs
+    UninstallGame(GameId),
+    ComponentsHeader,
+    ComponentInfo { name: &'static str, version: Option<String> },
+    UninstallComponent(&'static str),
+}
+
+impl SettingsItem {
+    fn is_selectable(&self) -> bool {
+        matches!(self, Self::ManageVos(..) | Self::UninstallGame(_) | Self::UninstallComponent(_))
+    }
+}
+
+/// Action kind for settings items (used by input handler).
+#[derive(Debug, Clone, Copy)]
+pub enum SettingsAction {
+    None,
+    ManageVos(GameId),
+    UninstallGame(GameId),
+    UninstallComponent(&'static str),
+}
+
+/// Returns (is_selectable, action) for each settings item. Used by input handler.
+pub fn build_settings_items_pub(app: &App) -> Vec<(bool, SettingsAction)> {
+    build_settings_items(app).iter().map(|item| {
+        let selectable = item.is_selectable();
+        let action = match item {
+            SettingsItem::ManageVos(g, _) => SettingsAction::ManageVos(*g),
+            SettingsItem::UninstallGame(g) => SettingsAction::UninstallGame(*g),
+            SettingsItem::UninstallComponent(n) => SettingsAction::UninstallComponent(n),
+            _ => SettingsAction::None,
+        };
+        (selectable, action)
+    }).collect()
+}
+
+fn build_settings_items(app: &App) -> Vec<SettingsItem> {
+    let mut items = Vec::new();
+    for game in GameId::ALL {
+        let installed = app.games.get(&game)
+            .and_then(|s| s.installed_tag.as_ref())
+            .is_some();
+        if !installed { continue; }
+        items.push(SettingsItem::GameHeader(game));
+        let gc = app.config.games.get(&game);
+        let vo_count = gc.map(|c| c.vo_langs.len()).unwrap_or(1);
+        items.push(SettingsItem::ManageVos(game, vo_count));
+        items.push(SettingsItem::UninstallGame(game));
+    }
+    items.push(SettingsItem::ComponentsHeader);
+    items.push(SettingsItem::ComponentInfo {
+        name: "Proton",
+        version: app.config.installed_components.proton.clone(),
+    });
+    items.push(SettingsItem::UninstallComponent("proton"));
+    items.push(SettingsItem::ComponentInfo {
+        name: "Jadeite",
+        version: app.config.installed_components.jadeite.clone(),
+    });
+    items.push(SettingsItem::UninstallComponent("jadeite"));
+    items
+}
+
 /// Application color palette — fixed RGB values independent of terminal theme.
 mod palette {
     use ratatui::style::Color;
@@ -115,6 +182,11 @@ pub fn draw(frame: &mut Frame, app: &App) {
     if app.current_view == View::Settings {
         darken_full_window(frame);
         draw_settings(frame, app, outer[1]);
+    }
+
+    if let Some(ref modal) = app.vo_modal {
+        darken_full_window(frame);
+        draw_vo_modal(frame, area, modal);
     }
 
     if let Some(ref msg) = app.error_message {
@@ -770,10 +842,10 @@ fn draw_launch_log(frame: &mut Frame, app: &App, area: Rect) {
 
 fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     let bg_img = app.backgrounds.get(&app.selected_game());
+    let items = build_settings_items(app);
 
-    // Center the overlay box
     let overlay_w = 60u16.min(area.width.saturating_sub(4));
-    let overlay_h = 16u16.min(area.height.saturating_sub(2));
+    let overlay_h = (items.len() as u16 + 6).min(area.height.saturating_sub(2));
     let overlay_rect = Rect::new(
         area.x + (area.width.saturating_sub(overlay_w)) / 2,
         area.y + (area.height.saturating_sub(overlay_h)) / 2,
@@ -784,69 +856,123 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
     render_container(frame, overlay_rect, bg_img);
     let inner = shrink(overlay_rect, 2, 1);
 
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(2), // Section header
-            Constraint::Min(0),    // Content
-        ])
-        .split(inner);
-
-    let header = Paragraph::new(Line::from(Span::styled(
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(Span::styled(
         "Settings",
         Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
     )));
-    frame.render_widget(header, layout[0]);
-
-    let mut lines: Vec<Line> = Vec::new();
-
-    lines.push(Line::styled("Games", Style::default().fg(TEXT_MUTED)));
     lines.push(Line::from(""));
 
-    for game in GameId::ALL {
-        let cfg = app.config.games.get(&game);
-        let vo = cfg.map(|c| c.vo_lang.as_str()).unwrap_or("en-us");
-        let path = cfg
-            .and_then(|c| c.install_path.as_ref())
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "not set".to_owned());
-        lines.push(Line::from(vec![
-            Span::styled(
-                format!("{:<6}", game.display_name()),
-                Style::default().fg(game_color(game)),
-            ),
-            Span::styled(format!("lang: {:<6}", vo), Style::default().fg(TEXT_MUTED)),
-            Span::styled(format!("path: {}", path), Style::default().fg(TEXT_MUTED)),
-        ]));
+    for (i, item) in items.iter().enumerate() {
+        let is_cursor = item.is_selectable() && i == app.settings.cursor;
+        let line = match item {
+            SettingsItem::GameHeader(game) => Line::from(Span::styled(
+                format!("── {} ──", game.display_name()),
+                Style::default().fg(game_color(*game)).add_modifier(Modifier::BOLD),
+            )),
+            SettingsItem::ManageVos(_, count) => {
+                let label = format!("  Manage VOs ({count} enabled)");
+                let style = if is_cursor {
+                    Style::default().fg(BLACK).bg(ACCENT)
+                } else {
+                    Style::default().fg(TEXT)
+                };
+                Line::from(Span::styled(label, style))
+            }
+            SettingsItem::UninstallGame(_) => {
+                let style = if is_cursor {
+                    Style::default().fg(BLACK).bg(ERROR).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(ERROR)
+                };
+                Line::from(Span::styled("  Uninstall game", style))
+            }
+            SettingsItem::ComponentsHeader => Line::from(Span::styled(
+                "── Components ──",
+                Style::default().fg(TEXT_MUTED).add_modifier(Modifier::BOLD),
+            )),
+            SettingsItem::ComponentInfo { name, version } => {
+                let ver = version.as_deref().unwrap_or("not installed");
+                let color = if *name == "Proton" { SUCCESS } else { MAGENTA };
+                Line::from(vec![
+                    Span::styled(format!("  {}  ", name), Style::default().fg(color)),
+                    Span::styled(ver, Style::default().fg(TEXT_MUTED)),
+                ])
+            }
+            SettingsItem::UninstallComponent(name) => {
+                let installed = match *name {
+                    "proton" => app.config.installed_components.proton.is_some(),
+                    "jadeite" => app.config.installed_components.jadeite.is_some(),
+                    _ => false,
+                };
+                if !installed {
+                    Line::from(Span::styled(
+                        format!("  Uninstall {} (not installed)", name),
+                        Style::default().fg(TEXT_MUTED),
+                    ))
+                } else {
+                    let style = if is_cursor {
+                        Style::default().fg(BLACK).bg(ERROR).add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(ERROR)
+                    };
+                    Line::from(Span::styled(format!("  Uninstall {}", name), style))
+                }
+            }
+        };
+        lines.push(line);
     }
 
     lines.push(Line::from(""));
-    lines.push(Line::styled("Components", Style::default().fg(TEXT_MUTED)));
+    lines.push(Line::from(Span::styled(
+        "[↑/↓] navigate  [enter] select  [esc] back",
+        Style::default().fg(TEXT_MUTED),
+    )));
+
+    frame.render_widget(Paragraph::new(lines), inner);
+}
+
+fn draw_vo_modal(frame: &mut Frame, area: Rect, modal: &crate::app::VoManagerModal) {
+    use crate::config::{VALID_LANGS, lang_display_name};
+
+    let overlay_w = 42u16.min(area.width.saturating_sub(4));
+    let overlay_h = 12u16.min(area.height.saturating_sub(2));
+    let overlay_rect = Rect::new(
+        area.x + (area.width.saturating_sub(overlay_w)) / 2,
+        area.y + (area.height.saturating_sub(overlay_h)) / 2,
+        overlay_w,
+        overlay_h,
+    );
+
+    render_container(frame, overlay_rect, None);
+    let inner = shrink(overlay_rect, 2, 1);
+
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(Span::styled(
+        "Manage Voice-Overs",
+        Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+    )));
     lines.push(Line::from(""));
 
-    let proton = app
-        .config
-        .installed_components
-        .proton
-        .as_deref()
-        .unwrap_or("not installed");
-    let jadeite = app
-        .config
-        .installed_components
-        .jadeite
-        .as_deref()
-        .unwrap_or("not installed");
-    lines.push(Line::from(vec![
-        Span::styled("Proton   ", Style::default().fg(SUCCESS)),
-        Span::styled(proton, Style::default().fg(TEXT_MUTED)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("Jadeite  ", Style::default().fg(MAGENTA)),
-        Span::styled(jadeite, Style::default().fg(TEXT_MUTED)),
-    ]));
+    for (i, code) in VALID_LANGS.iter().enumerate() {
+        let check = if modal.enabled[i] { "[x]" } else { "[ ]" };
+        let name = lang_display_name(code);
+        let label = format!(" {} {}  ({})", check, name, code);
+        let style = if i == modal.cursor {
+            Style::default().fg(BLACK).bg(ACCENT)
+        } else {
+            Style::default().fg(TEXT)
+        };
+        lines.push(Line::from(Span::styled(label, style)));
+    }
 
-    let content = Paragraph::new(lines);
-    frame.render_widget(content, layout[1]);
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "[space] toggle  [enter] apply  [esc] cancel",
+        Style::default().fg(TEXT_MUTED),
+    )));
+
+    frame.render_widget(Paragraph::new(lines), inner);
 }
 
 fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {

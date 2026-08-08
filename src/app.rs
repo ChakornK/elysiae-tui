@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use irmin::game_installer::UpdateInfo;
 use irmin::{DownloadHandle, SophonProgress};
 
-use crate::config::Config;
+use crate::config::{Config, VALID_LANGS};
 use crate::game::GameId;
 use crate::quadrant::QuadrantImage;
 
@@ -12,6 +12,54 @@ use crate::quadrant::QuadrantImage;
 pub enum View {
     GameList,
     Settings,
+}
+
+/// Cursor state for the settings list.
+pub struct SettingsState {
+    pub cursor: usize,
+    pub item_count: usize,
+}
+
+/// Modal for managing per-game VO language selection.
+pub struct VoManagerModal {
+    pub game: GameId,
+    pub enabled: [bool; 5],
+    pub cursor: usize,
+}
+
+impl VoManagerModal {
+    /// Creates a new modal initialized from the game's current VO lang config.
+    pub fn new(game: GameId, current_langs: &[String]) -> Self {
+        let mut enabled = [false; 5];
+        for (i, code) in VALID_LANGS.iter().enumerate() {
+            enabled[i] = current_langs.iter().any(|l| l == code);
+        }
+        // Ensure at least one is enabled
+        if !enabled.iter().any(|&e| e) {
+            enabled[0] = true;
+        }
+        Self { game, enabled, cursor: 0 }
+    }
+
+    /// Toggles the lang at cursor. Refuses to disable the last enabled lang.
+    pub fn toggle_current(&mut self) {
+        if self.enabled[self.cursor] {
+            let count = self.enabled.iter().filter(|&&e| e).count();
+            if count > 1 {
+                self.enabled[self.cursor] = false;
+            }
+        } else {
+            self.enabled[self.cursor] = true;
+        }
+    }
+
+    /// Returns the list of enabled language codes.
+    pub fn selected_langs(&self) -> Vec<String> {
+        VALID_LANGS.iter().enumerate()
+            .filter(|(i, _)| self.enabled[*i])
+            .map(|(_, code)| (*code).to_string())
+            .collect()
+    }
 }
 
 /// Installation status for a single game.
@@ -65,9 +113,11 @@ pub struct ConfirmDialog {
 }
 
 /// Identifies which dialog is active so the handler knows what to do on confirm.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DialogKind {
     CancelDownload,
+    UninstallGame(GameId),
+    UninstallComponent(String),
 }
 
 impl ConfirmDialog {
@@ -75,8 +125,26 @@ impl ConfirmDialog {
         Self {
             title: "Cancel Download".to_string(),
             message: "Cancel the active download?".to_string(),
-            selected: 1, // default to "No"
+            selected: 1,
             kind: DialogKind::CancelDownload,
+        }
+    }
+
+    pub fn uninstall_game(name: &str, game: GameId) -> Self {
+        Self {
+            title: "Uninstall Game".to_string(),
+            message: format!("Uninstall {}? This cannot be undone.", name),
+            selected: 1,
+            kind: DialogKind::UninstallGame(game),
+        }
+    }
+
+    pub fn uninstall_component(component: &str) -> Self {
+        Self {
+            title: "Uninstall Component".to_string(),
+            message: format!("Uninstall {}? This cannot be undone.", component),
+            selected: 1,
+            kind: DialogKind::UninstallComponent(component.to_owned()),
         }
     }
 
@@ -106,6 +174,8 @@ pub struct App {
     pub error_message: Option<String>,
     pub dialog: Option<ConfirmDialog>,
     pub show_help: bool,
+    pub settings: SettingsState,
+    pub vo_modal: Option<VoManagerModal>,
     pub backgrounds: HashMap<GameId, QuadrantImage>,
     pub ready_to_launch: bool,
     /// Game launch log lines (ring buffer, max 1000)
@@ -133,6 +203,8 @@ impl App {
             error_message: None,
             dialog: None,
             show_help: false,
+            settings: SettingsState { cursor: 0, item_count: 0 },
+            vo_modal: None,
             backgrounds: HashMap::new(),
             ready_to_launch: false,
             launch_log: VecDeque::new(),
