@@ -6,6 +6,7 @@ use irmin::{DownloadHandle, SophonProgress};
 use crate::config::{Config, VALID_LANGS};
 use crate::game::GameId;
 use crate::quadrant::QuadrantImage;
+use crate::transition::BgTransition;
 
 /// Which screen the TUI is currently showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +178,7 @@ pub struct App {
     pub settings: SettingsState,
     pub vo_modal: Option<VoManagerModal>,
     pub backgrounds: HashMap<GameId, QuadrantImage>,
+    pub bg_transition: Option<BgTransition>,
     pub ready_to_launch: bool,
     /// Game launch log lines (ring buffer, max 1000)
     pub launch_log: VecDeque<String>,
@@ -206,6 +208,7 @@ impl App {
             settings: SettingsState { cursor: 0, item_count: 0 },
             vo_modal: None,
             backgrounds: HashMap::new(),
+            bg_transition: None,
             ready_to_launch: false,
             launch_log: VecDeque::new(),
             launch_log_scroll: 0,
