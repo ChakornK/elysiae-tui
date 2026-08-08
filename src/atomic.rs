@@ -9,6 +9,17 @@ pub fn atomic_write(target: &Path, data: &[u8]) -> io::Result<()> {
     fs::rename(&tmp, target)
 }
 
+/// Removes a directory, but if the path is a symlink, only removes the symlink itself.
+pub fn safe_remove_dir_all(path: &Path) -> io::Result<()> {
+    if path.is_symlink() {
+        fs::remove_file(path)
+    } else if path.exists() {
+        fs::remove_dir_all(path)
+    } else {
+        Ok(())
+    }
+}
+
 /// Renames a corrupt file to `{name}.corrupted-{unix_ts}` for later inspection.
 /// Returns the path of the preserved file.
 pub fn preserve_corrupt(path: &Path) -> io::Result<PathBuf> {

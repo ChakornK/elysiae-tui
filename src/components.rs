@@ -9,7 +9,9 @@ use tokio::sync::mpsc::Sender;
 pub enum ComponentProgress {
     Downloading { downloaded_bytes: u64, total_bytes: u64 },
     Extracting,
+    #[allow(dead_code)]
     Finished { tag: String },
+    #[allow(dead_code)]
     Error { message: String },
 }
 
@@ -17,6 +19,7 @@ pub enum ComponentProgress {
 #[derive(Debug, Deserialize)]
 struct ModuleData {
     download_url: String,
+    #[allow(dead_code)]
     hash: String,
     tag: String,
 }
@@ -154,7 +157,7 @@ impl ComponentManager {
 
         // On extraction failure, clean up dest dir so future installs aren't blocked
         if let Err(e) = extract_result {
-            let _ = std::fs::remove_dir_all(&dest_dir);
+            let _ = crate::atomic::safe_remove_dir_all(&dest_dir);
             let _ = std::fs::remove_file(&archive_path);
             return Err(e);
         }
@@ -171,7 +174,7 @@ impl ComponentManager {
                     .status()
                     .await?;
                 if !status.success() {
-                    let _ = std::fs::remove_dir_all(&dest_dir);
+                    let _ = crate::atomic::safe_remove_dir_all(&dest_dir);
                     return Err(ComponentError::Other(
                         "block_analytics.sh failed".to_owned(),
                     ));
