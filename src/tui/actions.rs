@@ -122,9 +122,10 @@ pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
             let result = ops.apply_preinstall(&preinstall_tag, &path_str, &handle, tx.clone()).await;
             if let Err(e) = result {
                 let msg = e.to_string();
-                if !msg.to_lowercase().contains("cancel") {
-                    let _ = tx.send(SophonProgress::Error { message: msg }).await;
+                if msg.to_lowercase().contains("cancel") {
+                    return;
                 }
+                let _ = tx.send(SophonProgress::Error { message: msg }).await;
             } else {
                 if let Err(e) = crate::postinstall::run_post_install(ops.client(), std::path::Path::new(&path_str), game.as_str(), tx.clone()).await {
                     tracing::warn!("post-install failed: {e}");
@@ -245,6 +246,9 @@ fn spawn_operation(
         if matches!(op, Op::Download | Op::Update | Op::Preinstall)
             && let Err(msg) = ensure_components(&client, &data_dir, game, &tx, &handle).await
         {
+            if msg.to_lowercase().contains("cancel") {
+                return;
+            }
             let _ = tx.send(SophonProgress::Error { message: msg }).await;
             return;
         }
