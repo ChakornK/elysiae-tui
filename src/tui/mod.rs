@@ -42,11 +42,11 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         let gc = app.config.game_config(game).clone();
         if let Some(ref path) = gc.install_path {
             let tag = irmin::game_installer::read_installed_tag(path);
-            let exe_exists = path.join(game.exe_name()).exists();
-            let has_resume = !exe_exists
+            let installed = tag.is_some();
+            let has_resume = !installed
                 && crate::state::has_partial_download(&data_dir_for_state, path, game.as_str());
             app.games.insert(game, crate::app::GameStatus {
-                installed_tag: if exe_exists { tag } else { None },
+                installed_tag: tag,
                 update_info: None,
                 has_resume,
             });
