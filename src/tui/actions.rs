@@ -473,6 +473,9 @@ pub fn uninstall_game(app: &mut App, game: GameId) -> Result<(), String> {
 
 /// Removes a component (proton or jadeite) and clears config.
 pub fn uninstall_component(app: &mut App, component: &str) -> Result<(), String> {
+    if app.download.is_some() {
+        return Err("cannot uninstall components while a download is active".to_owned());
+    }
     let data_dir = crate::config::app_data_dir();
     match component {
         "proton" => {
