@@ -74,7 +74,7 @@ impl Launcher {
                 Ok(c) => c,
                 Err(e) => {
                     let _ = log_tx.send(format!("failed to spawn process: {e}")).await;
-                    let _ = log_tx.send("__PROCESS_EXIT__".to_owned()).await;
+                    let _ = log_tx.send("\x00__PROCESS_EXIT__".to_owned()).await;
                     return;
                 }
             };
