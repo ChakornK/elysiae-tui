@@ -258,9 +258,13 @@ fn spawn_operation(
         };
         if let Err(e) = result {
             let msg = e.to_string();
-            if !msg.to_lowercase().contains("cancel") {
-                let _ = tx.send(SophonProgress::Error { message: msg }).await;
+            if msg.to_lowercase().contains("cancel") {
+                // Cancelled tasks must not send Finished — the cancel UI flow
+                // already cleared app.download. A stale Finished would kill
+                // any subsequently-started download.
+                return;
             }
+            let _ = tx.send(SophonProgress::Error { message: msg }).await;
             let _ = tx.send(SophonProgress::Finished).await;
         } else {
             if matches!(op, Op::Download | Op::Update)
