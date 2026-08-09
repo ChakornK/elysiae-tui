@@ -545,15 +545,22 @@ pub fn apply_vo_changes(
         tokio::spawn(async move {
             let ops = Operations::new(client, crate::config::app_data_dir());
             for lang in &added {
+                if handle.is_cancelled() {
+                    return;
+                }
                 if let Err(e) = ops.verify(game, lang, &path_str, tx.clone()).await {
                     let msg = e.to_string();
-                    if !msg.to_lowercase().contains("cancel") {
-                        let _ = tx.send(SophonProgress::Error { message: format!("VO download failed for {lang}: {msg}") }).await;
+                    if msg.to_lowercase().contains("cancel") {
                         return;
                     }
+                    let _ = tx.send(SophonProgress::Error { message: format!("VO download failed for {lang}: {msg}") }).await;
+                    let _ = tx.send(SophonProgress::Finished).await;
+                    return;
                 }
             }
-            let _ = tx.send(SophonProgress::Finished).await;
+            if !handle.is_cancelled() {
+                let _ = tx.send(SophonProgress::Finished).await;
+            }
         });
     }
 }
