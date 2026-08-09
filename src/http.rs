@@ -42,10 +42,11 @@ pub async fn fetch_json<T: serde::de::DeserializeOwned>(
     url: &str,
 ) -> Result<T, HttpError> {
     let mut resp = client.get(url).send().await?.error_for_status()?;
-    if let Some(len) = resp.content_length() {
-        if len > MAX_JSON_BODY as u64 {
-            return Err(HttpError::TooLarge { size: len, url: url.to_owned() });
-        }
+    if resp.content_length().is_some_and(|len| len > MAX_JSON_BODY as u64) {
+        return Err(HttpError::TooLarge {
+            size: resp.content_length().unwrap(),
+            url: url.to_owned(),
+        });
     }
     let mut buf = Vec::with_capacity(
         resp.content_length().unwrap_or(8192).min(MAX_JSON_BODY as u64) as usize

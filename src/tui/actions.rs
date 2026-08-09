@@ -447,10 +447,8 @@ fn default_install_path(game: GameId) -> PathBuf {
 /// Removes a game's installation directory and clears associated state.
 pub fn uninstall_game(app: &mut App, game: GameId) -> Result<(), String> {
     // Prevent uninstall while a download is targeting this game
-    if let Some(ref dl) = app.download {
-        if dl.game_id == game {
-            return Err("cannot uninstall while a download is active for this game".to_owned());
-        }
+    if app.download.as_ref().is_some_and(|dl| dl.game_id == game) {
+        return Err("cannot uninstall while a download is active for this game".to_owned());
     }
 
     let gc = app.config.games.get(&game);
