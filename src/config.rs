@@ -260,4 +260,26 @@ mod tests {
         let result: Result<Config, _> = serde_json::from_str("not json at all");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn old_format_vo_lang_migrates() {
+        let json = r#"{"vo_lang": "ja-jp", "install_path": "/games/hk4e"}"#;
+        let gc: GameConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(gc.vo_langs, vec!["ja-jp"]);
+        assert_eq!(gc.install_path, Some(PathBuf::from("/games/hk4e")));
+    }
+
+    #[test]
+    fn missing_vo_fields_defaults_to_english() {
+        let json = r#"{"install_path": null}"#;
+        let gc: GameConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(gc.vo_langs, vec!["en-us"]);
+    }
+
+    #[test]
+    fn new_format_vo_langs_preferred_over_vo_lang() {
+        let json = r#"{"vo_lang": "ja-jp", "vo_langs": ["zh-cn", "ko-kr"]}"#;
+        let gc: GameConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(gc.vo_langs, vec!["zh-cn", "ko-kr"]);
+    }
 }
