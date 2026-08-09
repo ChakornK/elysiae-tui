@@ -8,6 +8,10 @@ use thiserror::Error;
 pub enum HttpError {
     #[error("HTTP {code} from {url}")]
     Status { code: u16, url: String },
+    #[error("response too large ({size} bytes) from {url}")]
+    TooLarge { size: u64, url: String },
+    #[error("JSON parse error for {url}: {detail}")]
+    Parse { url: String, detail: String },
     #[error("request timeout: {0}")]
     Timeout(String),
     #[error("network error: {0}")]
@@ -32,30 +36,32 @@ pub fn build_client() -> Client {
 const MAX_JSON_BODY: usize = 16 * 1024 * 1024;
 
 /// Fetches JSON from a URL, returning an error on non-2xx status.
-/// Rejects responses larger than 16 MB to prevent OOM.
+/// Streams the body with a 16 MB cap to prevent OOM on unbounded responses.
 pub async fn fetch_json<T: serde::de::DeserializeOwned>(
     client: &Client,
     url: &str,
 ) -> Result<T, HttpError> {
-    let resp = client.get(url).send().await?.error_for_status()?;
+    let mut resp = client.get(url).send().await?.error_for_status()?;
     if let Some(len) = resp.content_length() {
         if len > MAX_JSON_BODY as u64 {
-            return Err(HttpError::Status {
-                code: 0,
-                url: format!("response too large ({len} bytes): {url}"),
-            });
+            return Err(HttpError::TooLarge { size: len, url: url.to_owned() });
         }
     }
-    let bytes = resp.bytes().await?;
-    if bytes.len() > MAX_JSON_BODY {
-        return Err(HttpError::Status {
-            code: 0,
-            url: format!("response too large ({} bytes): {url}", bytes.len()),
-        });
+    let mut buf = Vec::with_capacity(
+        resp.content_length().unwrap_or(8192).min(MAX_JSON_BODY as u64) as usize
+    );
+    while let Some(chunk) = resp.chunk().await? {
+        if buf.len() + chunk.len() > MAX_JSON_BODY {
+            return Err(HttpError::TooLarge {
+                size: (buf.len() + chunk.len()) as u64,
+                url: url.to_owned(),
+            });
+        }
+        buf.extend_from_slice(&chunk);
     }
-    serde_json::from_slice(&bytes).map_err(|e| HttpError::Status {
-        code: 0,
-        url: format!("JSON parse error: {e}"),
+    serde_json::from_slice(&buf).map_err(|e| HttpError::Parse {
+        url: url.to_owned(),
+        detail: e.to_string(),
     })
 }
 

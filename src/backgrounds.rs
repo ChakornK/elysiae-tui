@@ -94,7 +94,8 @@ impl Backgrounds {
                 let _ = fs::create_dir_all(parent);
             }
 
-            if let Ok(bytes) = download_file(client, &entry.display.background.url).await
+            if let Some(bytes) = download_file(client, &entry.display.background.url).await
+                && !bytes.is_empty()
                 && fs::write(&local_path, &bytes).is_ok()
             {
                 self.paths.insert(game_id, local_path);
@@ -129,18 +130,22 @@ async fn fetch_games(client: &reqwest::Client) -> Option<Vec<GameEntry>> {
 }
 
 /// Max background image size (20 MB) to prevent OOM on malformed responses.
-const MAX_BG_SIZE: u64 = 20 * 1024 * 1024;
+const MAX_BG_SIZE: usize = 20 * 1024 * 1024;
 
-async fn download_file(client: &reqwest::Client, url: &str) -> Result<Vec<u8>, reqwest::Error> {
-    let resp = client.get(url).send().await?.error_for_status()?;
-    if let Some(len) = resp.content_length() {
-        if len > MAX_BG_SIZE {
-            return Ok(Vec::new());
+/// Downloads a file with a streaming size cap. Returns None if oversized.
+async fn download_file(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
+    let mut resp = client.get(url).send().await.ok()?.error_for_status().ok()?;
+    if resp.content_length().is_some_and(|len| len > MAX_BG_SIZE as u64) {
+        return None;
+    }
+    let mut buf = Vec::with_capacity(
+        resp.content_length().unwrap_or(8192).min(MAX_BG_SIZE as u64) as usize
+    );
+    while let Some(chunk) = resp.chunk().await.ok()? {
+        if buf.len() + chunk.len() > MAX_BG_SIZE {
+            return None;
         }
+        buf.extend_from_slice(&chunk);
     }
-    let bytes = resp.bytes().await?;
-    if bytes.len() as u64 > MAX_BG_SIZE {
-        return Ok(Vec::new());
-    }
-    Ok(bytes.to_vec())
+    Some(buf)
 }
