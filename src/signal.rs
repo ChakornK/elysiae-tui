@@ -22,11 +22,11 @@ pub fn spawn_signal_handler() -> watch::Receiver<bool> {
             _ = async { sigint.as_mut().unwrap().recv().await }, if sigint.is_some() => {}
             _ = async { sigterm.as_mut().unwrap().recv().await }, if sigterm.is_some() => {}
         }
-        let _ = crossterm::terminal::disable_raw_mode();
         let _ = crossterm::execute!(
             std::io::stdout(),
             crossterm::terminal::LeaveAlternateScreen
         );
+        let _ = crossterm::terminal::disable_raw_mode();
         std::process::exit(130);
     });
     rx
