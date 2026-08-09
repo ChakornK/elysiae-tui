@@ -64,11 +64,12 @@ flowchart TD
 flowchart TD
     Start([main]) --> LoadConfig[Load config from disk]
     LoadConfig --> Corrupt{Deserializes as Config struct?}
-    Corrupt -->|No| Preserve[Rename to config.corrupted-timestamp, use default]
+    Corrupt -->|No| Preserve[Rename to config.json.corrupted-timestamp, use default]
     Corrupt -->|Yes| InitTerm
     Preserve --> InitTerm[Install panic hook + enter raw mode]
-    InitTerm --> InitApp[Create App state]
-    InitApp --> ScanGames[For each game with install_path]
+    InitTerm -->     InitApp[Create App state]
+    InitApp --> SpawnSignal[Spawn signal handler]
+    SpawnSignal --> ScanGames[For each game with install_path]
     ScanGames --> ReadTag[Read .sophon_version tag]
     ReadTag --> CheckExe[Check exe exists]
     CheckExe --> CheckState[Check state file and chunks dir]
@@ -257,7 +258,7 @@ flowchart TD
     StartDownload --> Done
 ```
 
-The modal closes before file operations begin. Removal and addition run as independent spawned tasks. If download of added langs fails, the config retains the new selection (optimistic commit).
+The modal closes before file operations begin. Removal and addition run as independent spawned tasks. The download task checks for cancellation between languages and before sending Finished. If download of added langs fails, the config retains the new selection (optimistic commit).
 
 ---
 
@@ -291,15 +292,15 @@ flowchart TD
     PostInstall --> SendFinishedSpawn
 ```
 
-State saver writes progress after each chunk batch. On error: the spawn layer sends an Error event then a Finished event; the state file stays on disk for resume.
+A new download cancels any in-progress download before starting. State saver writes progress after each chunk batch (logs one warning per failure streak, resets on recovery). On non-cancel error: the spawn layer sends Error then Finished. On cancellation: the spawn layer sends nothing (the cancel UI flow already cleared `app.download`). The state file stays on disk for resume.
 
-Honkai: Star Rail is the one game requiring Jadeite. The cancellation check runs between Proton and Jadeite regardless of whether the game needs Jadeite.
+Honkai: Star Rail is the one game requiring Jadeite. The cancellation check runs between Proton and Jadeite even if the game doesn't need Jadeite.
 
 ---
 
 ## 11. Component Installation
 
-The availability check and version comparison happen at the call site (Section 10's `EnsureProton`/`EnsureJadeite`). This section covers the install operation itself.
+The availability check and version comparison happen at the call site (Section 10); below is the install operation only.
 
 ```mermaid
 flowchart TD
@@ -338,16 +339,16 @@ flowchart TD
     Dialog --> Confirmed{User confirms?}
     Confirmed -->|No| Dismiss([Dialog dismissed, download continues])
     Confirmed -->|Yes| CancelHandle[handle.cancel signals irmin to stop]
-    CancelHandle --> ClearReady[Clear ready_to_launch]
-    ClearReady --> CheckResume{State file or chunks dir AND exe missing?}
+    CancelHandle --> CheckResume{State file or chunks dir AND exe missing?}
     CheckResume -->|Yes| SetResume[has_resume = true]
     CheckResume -->|No| SetNoResume[has_resume = false]
     SetResume --> ClearDL[app.download = None]
     SetNoResume --> ClearDL
-    ClearDL --> CleanArchives([Remove partial proton.archive and jadeite.archive])
+    ClearDL --> ClearReady[Clear ready_to_launch]
+    ClearReady --> CleanArchives([Remove partial proton.archive and jadeite.archive])
 ```
 
-Cancelling an update leaves the prior installation intact. State re-derives as Update Available per Section 2 (exe present, update pending).
+Cancelling an update leaves the prior installation intact. State re-derives as Update Available per Section 2 (exe present, update pending). The cancelled spawned task sends no Finished event; the cancel UI flow already cleared `app.download`.
 
 ---
 
@@ -420,11 +421,11 @@ Reports progress via `CheckingFiles` and `Downloading` events.
 
 ```mermaid
 flowchart TD
-    SelectGame([User selects Uninstall Game]) --> Guard{Download active for this game?}
-    Guard -->|Yes| Error([Error: cannot uninstall during download])
-    Guard -->|No| ConfirmG{User confirms?}
+    SelectGame([User selects Uninstall Game]) --> ConfirmG{User confirms?}
     ConfirmG -->|No| CancelGame([Dismissed])
-    ConfirmG -->|Yes| RemoveDir[safe_remove_dir_all on install_path]
+    ConfirmG -->|Yes| GuardGame{Download active for this game?}
+    GuardGame -->|Yes| Error([Error: cannot uninstall during download])
+    GuardGame -->|No| RemoveDir[safe_remove_dir_all on install_path]
     RemoveDir --> RemoveState[Remove state file, best-effort]
     RemoveState --> ClearStatus[Clear installed_tag, has_resume, update_info]
     ClearStatus --> ClearConfig[Clear install_path from config]
@@ -432,7 +433,9 @@ flowchart TD
 
     SelectComp([User selects Uninstall Component]) --> ConfirmC{User confirms?}
     ConfirmC -->|No| CancelComp([Dismissed])
-    ConfirmC -->|Yes| WhichComp{Component?}
+    ConfirmC -->|Yes| GuardComp{Any download active?}
+    GuardComp -->|Yes| ErrorComp([Error: cannot uninstall during download])
+    GuardComp -->|No| WhichComp{Component?}
     WhichComp -->|Proton| RemoveProton[Remove proton/ fatal, proton-data/ and proton.tag best-effort]
     WhichComp -->|Jadeite| RemoveJadeite[Remove jadeite/ fatal, jadeite.tag best-effort]
     RemoveProton --> ClearCompConfig[Clear config.installed_components entry]
@@ -456,7 +459,8 @@ flowchart TD
     SaveConfig --> DropGuard[TerminalGuard::drop restores terminal]
     DropGuard --> Exit([Process exits cleanly])
 
-    Second([Second signal]) --> ForceExit([process::exit 130])
+    Second([Second signal]) --> Restore[Restore terminal: LeaveAlternateScreen, disable raw mode]
+    Restore --> ForceExit([process::exit 130])
 ```
 
 ---
@@ -468,13 +472,14 @@ flowchart TD
 | Network timeout during download | `irmin` retries 5x. All fail: `Error` event sent, state file preserved. |
 | Panic in any code | Panic hook restores terminal before printing backtrace. |
 | Early return with `?` in TUI | `TerminalGuard::drop` restores terminal. |
-| Disk full during download | Write fails, `Error` event sent, state file has progress to last successful chunk. |
-| Corrupt `config.json` | Extension replaced with `corrupted-{timestamp}`, fresh default created. |
+| Disk full during download | Write fails, `Error` event sent, state file has progress to last successful chunk. Save-failure warning logs once per streak. |
+| Corrupt `config.json` | Renamed to `config.json.corrupted-{timestamp}`, fresh default created. |
 | Game process crash | Exit code shown in log, `game_running` cleared on sentinel. |
 | Uninstall fails (permissions) | Error modal shown with OS error. |
 | VO download fails | Error modal shown, config retains the new selection (optimistic). |
 | Component hash mismatch | Archive deleted, error reported. Retryable. |
 | Component extraction fails | Destination dir and archive both cleaned up. |
+| Log file creation fails | Logging disabled (tracing macros become no-ops). TUI unaffected. |
 
 ---
 
@@ -492,6 +497,7 @@ flowchart TD
     WhichEvent -->|Assembling| AssembleBar([Update assembled files bar])
     WhichEvent -->|Verifying| VerifyBar([Update verified files bar])
     WhichEvent -->|CheckingFiles| CheckBar([Update checked files bar])
+    WhichEvent -->|CalculatingDownloads| CalcBar([Update calculating files bar])
     WhichEvent -->|ApplyingPreinstall| ApplyBar([Update applied files bar])
     WhichEvent -->|InstallingPlugins| PluginLabel([Set plugin status label])
     WhichEvent -->|DownloadingPlugin| PluginBar([Update plugin download bar])
@@ -517,9 +523,11 @@ flowchart TD
     ReadFile -->|No| Default([Use default config])
     ReadFile -->|Yes| Parse{Deserializes as Config struct?}
     Parse -->|Yes| Ready([Config ready])
-    Parse -->|No| Preserve[Rename to config.corrupted-timestamp, best-effort]
+    Parse -->|No| Preserve[Rename to config.json.corrupted-timestamp, best-effort]
     Preserve --> Default
 ```
+
+Deserialization accepts both old `vo_lang: String` and current `vo_langs: Vec<String>` formats. Old single-string configs migrate on load.
 
 ---
 
