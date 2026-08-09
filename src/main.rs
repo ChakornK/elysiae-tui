@@ -44,15 +44,8 @@ fn init_logging() {
     {
         Ok(appender) => appender,
         Err(_) => {
-            // Fall back to stderr-only logging if file creation fails
-            tracing_subscriber::fmt()
-                .with_writer(std::io::stderr)
-                .with_env_filter(
-                    tracing_subscriber::EnvFilter::try_from_env("ELYSIAE_LOG")
-                        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-                )
-                .with_ansi(false)
-                .init();
+            // No subscriber — tracing macros become no-ops.
+            // Stderr is unsafe when the TUI owns the terminal.
             return;
         }
     };
