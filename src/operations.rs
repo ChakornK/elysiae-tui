@@ -61,6 +61,7 @@ impl Operations {
             is_preinstall: false,
             is_resume: resume.prev_manifest_hash == manifest_hash && !resume.prev_downloaded_chunks.is_empty(),
             handle: handle.clone(),
+            verify_mode: game_installer::VerifyMode::Full,
         };
         let callbacks = InstallCallbacks {
             updater: updater.clone(),
@@ -108,6 +109,7 @@ impl Operations {
             is_preinstall: false,
             is_resume: resume.prev_manifest_hash == manifest_hash && !resume.prev_downloaded_chunks.is_empty(),
             handle: handle.clone(),
+            verify_mode: game_installer::VerifyMode::Full,
         };
         let callbacks = InstallCallbacks {
             updater: updater.clone(),
@@ -162,7 +164,7 @@ impl Operations {
 
         game_installer::preinstall_download(
             &self.client,
-            &plan,
+            plan,
             &game_dir,
             game.as_str(),
             vo_lang,
