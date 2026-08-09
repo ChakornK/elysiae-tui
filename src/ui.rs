@@ -1,3 +1,5 @@
+use std::sync::LazyLock;
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -9,6 +11,24 @@ use crate::app::{App, View};
 use crate::game::GameId;
 use crate::quadrant::QuadrantImage;
 use crate::transition::render_ripple_transition;
+
+/// Pre-computed tab labels: "[1] Game Name ", "[2] Game Name ", etc.
+static TAB_LABELS: LazyLock<[String; 4]> = LazyLock::new(|| {
+    let mut labels: [String; 4] = Default::default();
+    for (i, g) in GameId::ALL.iter().enumerate() {
+        labels[i] = format!("[{}] {} ", i + 1, g.display_name());
+    }
+    labels
+});
+
+/// Pre-computed uppercase game names for header display.
+static GAME_NAMES_UPPER: LazyLock<[String; 4]> = LazyLock::new(|| {
+    let mut names: [String; 4] = Default::default();
+    for (i, g) in GameId::ALL.iter().enumerate() {
+        names[i] = format!(" {}", g.display_name().to_uppercase());
+    }
+    names
+});
 
 /// Settings view item types.
 #[derive(Debug, Clone)]
@@ -431,17 +451,17 @@ fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
         if i > 0 {
             spans.push(Span::styled(" | ", Style::default().fg(TEXT_MUTED)));
         }
-        let label = format!("[{}] {} ", i + 1, g.display_name());
+        let label = &TAB_LABELS[i];
         if i == app.game_list_index {
             spans.push(Span::styled(
-                label,
+                label.as_str(),
                 Style::default()
                     .fg(BLACK)
                     .bg(game_color(*g))
                     .add_modifier(Modifier::BOLD),
             ));
         } else {
-            spans.push(Span::styled(label, Style::default().fg(game_color(*g))));
+            spans.push(Span::styled(label.as_str(), Style::default().fg(game_color(*g))));
         }
     }
 
@@ -541,7 +561,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
 
         let header_lines = vec![
             Line::from(Span::styled(
-                format!(" {}", game.display_name().to_uppercase()),
+                GAME_NAMES_UPPER[game as usize].as_str(),
                 Style::default()
                     .fg(game_color(game))
                     .add_modifier(Modifier::BOLD),
@@ -614,8 +634,9 @@ fn render_progress_bar(frame: &mut Frame, area: Rect, ratio: f64, label: &str, f
     let label_display_width = UnicodeWidthStr::width(label).min(width);
     let label_start = (width.saturating_sub(label_display_width)) / 2;
 
-    // Map display columns to characters
-    let mut col_chars = vec![' '; label_display_width];
+    // Map display columns to characters (stack-allocated, avoids per-frame heap alloc)
+    let mut col_chars = [' '; 512];
+    let label_display_width = label_display_width.min(col_chars.len());
     let mut col = 0usize;
     for ch in label.chars() {
         let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
@@ -699,10 +720,10 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     let mut y = inner.y;
 
     // Header: "Installing <game name>"
-    let header_text = dl
-        .header_override
-        .clone()
-        .unwrap_or_else(|| format!("Installing {}", game.display_name()));
+    let header_text = match dl.header_override.as_deref() {
+        Some(s) => s.to_owned(),
+        None => format!("Installing {}", game.display_name()),
+    };
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
             header_text,
@@ -810,9 +831,12 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
             let speed = format!("{}/s", format_bytes(dp.speed_bps as u64));
             let eta = format!("ETA {}", format_eta_long(dp.eta_seconds));
             let pad = w.saturating_sub(speed.len() + eta.len());
+            // Use a static buffer of spaces instead of allocating per frame
+            const SPACES: &str = "                                                                                                                                                                                                                                                                ";
+            let pad_str = &SPACES[..pad.min(SPACES.len())];
             Line::from(vec![
                 Span::styled(speed, Style::default().fg(TEXT_MUTED)),
-                Span::raw(" ".repeat(pad)),
+                Span::raw(pad_str),
                 Span::styled(eta, Style::default().fg(TEXT_MUTED)),
             ])
         } else if dp.downloaded_bytes > 0 && dp.total_bytes > 0 {
@@ -1168,49 +1192,37 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Returns (label, key) for the primary action button. Color is always WARNING.
 fn primary_button(app: &App) -> (&'static str, &'static str) {
-    if let Some(ref dl) = app.download {
-        if dl.game_id == app.selected_game() {
-            return (dl.op_label, "p");
-        }
-        // Another game is downloading — show what the button would do if enabled
-        let game = app.selected_game();
-        let status = app.games.get(&game);
-        let installed = status.and_then(|s| s.installed_tag.as_ref()).is_some();
-        let has_update = status
-            .and_then(|s| s.update_info.as_ref())
-            .is_some_and(|i| i.update_available);
-        let has_resume = status.is_some_and(|s| s.has_resume);
-        if has_resume {
-            return ("Resume", "⏎");
-        } else if has_update {
-            return ("Update", "⏎");
-        } else if installed {
-            return ("Launch", "⏎");
-        } else {
-            return ("Get Game", "⏎");
-        }
+    if let Some(ref dl) = app.download
+        && dl.game_id == app.selected_game()
+    {
+        return (dl.op_label, "p");
     }
     match app.current_view {
         View::Settings => ("Settings", "s"),
         _ => {
-            let game = app.selected_game();
-            let status = app.games.get(&game);
-            let installed = status.and_then(|s| s.installed_tag.as_ref()).is_some();
-            let has_update = status
-                .and_then(|s| s.update_info.as_ref())
-                .is_some_and(|i| i.update_available);
-            let has_resume = status.is_some_and(|s| s.has_resume);
-
-            if has_resume {
-                ("Resume", "⏎")
-            } else if has_update {
-                ("Update", "⏎")
-            } else if installed {
-                ("Launch", "⏎")
-            } else {
-                ("Get Game", "⏎")
-            }
+            let (label, _) = game_action_label(app, app.selected_game());
+            (label, "⏎")
         }
+    }
+}
+
+/// Derives the action label for a game based on its current state.
+fn game_action_label(app: &App, game: GameId) -> (&'static str, bool) {
+    let status = app.games.get(&game);
+    let installed = status.and_then(|s| s.installed_tag.as_ref()).is_some();
+    let has_update = status
+        .and_then(|s| s.update_info.as_ref())
+        .is_some_and(|i| i.update_available);
+    let has_resume = status.is_some_and(|s| s.has_resume);
+
+    if has_resume {
+        ("Resume", false)
+    } else if has_update {
+        ("Update", false)
+    } else if installed {
+        ("Launch", true)
+    } else {
+        ("Get Game", false)
     }
 }
 
