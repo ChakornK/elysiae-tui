@@ -51,7 +51,7 @@ fn default_true() -> bool {
 }
 
 /// Per-game settings.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameConfig {
     pub vo_langs: Vec<String>,
     pub install_path: Option<PathBuf>,
@@ -73,45 +73,6 @@ pub fn lang_display_name(code: &str) -> &str {
         "zh-tw" => "Chinese (Traditional)",
         "ko-kr" => "Korean",
         _ => code,
-    }
-}
-
-/// Custom deserialization: accepts both old `vo_lang: String` and new `vo_langs: Vec<String>`.
-impl<'de> Deserialize<'de> for GameConfig {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        #[derive(Deserialize)]
-        struct Raw {
-            #[serde(default)]
-            vo_lang: Option<String>,
-            #[serde(default)]
-            vo_langs: Option<Vec<String>>,
-            install_path: Option<PathBuf>,
-        }
-        let raw = Raw::deserialize(deserializer)?;
-        let vo_langs = match raw.vo_langs {
-            Some(langs) if !langs.is_empty() => langs,
-            _ => vec![raw.vo_lang.unwrap_or_else(|| "en-us".to_owned())],
-        };
-        Ok(GameConfig {
-            vo_langs,
-            install_path: raw.install_path,
-        })
-    }
-}
-
-impl Serialize for GameConfig {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("GameConfig", 2)?;
-        s.serialize_field("vo_langs", &self.vo_langs)?;
-        s.serialize_field("install_path", &self.install_path)?;
-        s.end()
     }
 }
 

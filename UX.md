@@ -521,8 +521,6 @@ flowchart TD
     Preserve --> Default
 ```
 
-The `vo_lang` to `vo_langs` migration runs inside the custom `Deserialize` impl. If JSON parses at all, the coercion has happened.
-
 ---
 
 ## 21. First Launch vs Normal Launch
