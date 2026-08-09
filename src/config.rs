@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use crate::game::GameId;
 
 /// Expands a home-relative subpath using the actual HOME directory.
+/// Falls back to /tmp/elysiae-tui if HOME is unset.
 pub(crate) fn fallback_home_join(subpath: &str) -> PathBuf {
     dirs::home_dir()
-        .expect("HOME environment variable must be set")
+        .unwrap_or_else(|| PathBuf::from("/tmp/elysiae-tui"))
         .join(subpath)
 }
 
@@ -50,29 +51,10 @@ fn default_true() -> bool {
 }
 
 /// Per-game settings.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GameConfig {
     pub vo_langs: Vec<String>,
     pub install_path: Option<PathBuf>,
-}
-
-impl GameConfig {
-    /// Returns the primary VO language (first in list, fallback "en-us").
-    pub fn primary_vo_lang(&self) -> &str {
-        self.vo_langs.first().map(|s| s.as_str()).unwrap_or("en-us")
-    }
-}
-
-/// Returns a human-readable name for a VO language code.
-pub fn lang_display_name(code: &str) -> &str {
-    match code {
-        "en-us" => "English",
-        "ja-jp" => "Japanese",
-        "zh-cn" => "Chinese (Simplified)",
-        "zh-tw" => "Chinese (Traditional)",
-        "ko-kr" => "Korean",
-        _ => code,
-    }
 }
 
 /// Custom deserialization: accepts both old `vo_lang: String` and new `vo_langs: Vec<String>`.
@@ -101,16 +83,22 @@ impl<'de> Deserialize<'de> for GameConfig {
     }
 }
 
-impl Serialize for GameConfig {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut s = serializer.serialize_struct("GameConfig", 2)?;
-        s.serialize_field("vo_langs", &self.vo_langs)?;
-        s.serialize_field("install_path", &self.install_path)?;
-        s.end()
+impl GameConfig {
+    /// Returns the primary VO language (first in list, fallback "en-us").
+    pub fn primary_vo_lang(&self) -> &str {
+        self.vo_langs.first().map(|s| s.as_str()).unwrap_or("en-us")
+    }
+}
+
+/// Returns a human-readable name for a VO language code.
+pub fn lang_display_name(code: &str) -> &str {
+    match code {
+        "en-us" => "English",
+        "ja-jp" => "Japanese",
+        "zh-cn" => "Chinese (Simplified)",
+        "zh-tw" => "Chinese (Traditional)",
+        "ko-kr" => "Korean",
+        _ => code,
     }
 }
 
@@ -271,5 +259,27 @@ mod tests {
     fn corrupt_json_falls_back_to_default() {
         let result: Result<Config, _> = serde_json::from_str("not json at all");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn old_format_vo_lang_migrates() {
+        let json = r#"{"vo_lang": "ja-jp", "install_path": "/games/hk4e"}"#;
+        let gc: GameConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(gc.vo_langs, vec!["ja-jp"]);
+        assert_eq!(gc.install_path, Some(PathBuf::from("/games/hk4e")));
+    }
+
+    #[test]
+    fn missing_vo_fields_defaults_to_english() {
+        let json = r#"{"install_path": null}"#;
+        let gc: GameConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(gc.vo_langs, vec!["en-us"]);
+    }
+
+    #[test]
+    fn new_format_vo_langs_preferred_over_vo_lang() {
+        let json = r#"{"vo_lang": "ja-jp", "vo_langs": ["zh-cn", "ko-kr"]}"#;
+        let gc: GameConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(gc.vo_langs, vec!["zh-cn", "ko-kr"]);
     }
 }

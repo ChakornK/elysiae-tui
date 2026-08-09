@@ -20,6 +20,10 @@ pub fn start_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sen
         Some(p) => p,
         None => {
             let default = default_install_path(game);
+            if let Err(e) = std::fs::create_dir_all(&default) {
+                app.error_message = Some(format!("cannot create install directory: {e}"));
+                return;
+            }
             app.config.game_config(game).install_path = Some(default.clone());
             let _ = app.config.save();
             default
@@ -61,7 +65,10 @@ pub fn start_resume(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
         Some(ref p) => p.clone(),
         None => {
             let default = crate::config::app_data_dir().join(game.as_str());
-            let _ = std::fs::create_dir_all(&default);
+            if let Err(e) = std::fs::create_dir_all(&default) {
+                app.error_message = Some(format!("cannot create install directory: {e}"));
+                return;
+            }
             app.config.game_config(game).install_path = Some(default.clone());
             let _ = app.config.save();
             default
@@ -115,9 +122,10 @@ pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
             let result = ops.apply_preinstall(&preinstall_tag, &path_str, &handle, tx.clone()).await;
             if let Err(e) = result {
                 let msg = e.to_string();
-                if !msg.to_lowercase().contains("cancel") {
-                    let _ = tx.send(SophonProgress::Error { message: msg }).await;
+                if msg.to_lowercase().contains("cancel") {
+                    return;
                 }
+                let _ = tx.send(SophonProgress::Error { message: msg }).await;
             } else {
                 if let Err(e) = crate::postinstall::run_post_install(ops.client(), std::path::Path::new(&path_str), game.as_str(), tx.clone()).await {
                     tracing::warn!("post-install failed: {e}");
@@ -238,6 +246,9 @@ fn spawn_operation(
         if matches!(op, Op::Download | Op::Update | Op::Preinstall)
             && let Err(msg) = ensure_components(&client, &data_dir, game, &tx, &handle).await
         {
+            if msg.to_lowercase().contains("cancel") {
+                return;
+            }
             let _ = tx.send(SophonProgress::Error { message: msg }).await;
             return;
         }
@@ -251,15 +262,22 @@ fn spawn_operation(
         };
         if let Err(e) = result {
             let msg = e.to_string();
-            if !msg.to_lowercase().contains("cancel") {
-                let _ = tx.send(SophonProgress::Error { message: msg }).await;
+            if msg.to_lowercase().contains("cancel") {
+                // Cancelled tasks must not send Finished — the cancel UI flow
+                // already cleared app.download. A stale Finished would kill
+                // any subsequently-started download.
+                return;
             }
-        } else if matches!(op, Op::Download | Op::Update)
-            && let Err(e) = crate::postinstall::run_post_install(&client, std::path::Path::new(&path), game.as_str(), tx.clone()).await
-        {
-            tracing::warn!("post-install failed: {e}");
+            let _ = tx.send(SophonProgress::Error { message: msg }).await;
+            let _ = tx.send(SophonProgress::Finished).await;
+        } else {
+            if matches!(op, Op::Download | Op::Update)
+                && let Err(e) = crate::postinstall::run_post_install(&client, std::path::Path::new(&path), game.as_str(), tx.clone()).await
+            {
+                tracing::warn!("post-install failed: {e}");
+            }
+            let _ = tx.send(SophonProgress::Finished).await;
         }
-        let _ = tx.send(SophonProgress::Finished).await;
     });
 }
 
@@ -428,6 +446,11 @@ fn default_install_path(game: GameId) -> PathBuf {
 
 /// Removes a game's installation directory and clears associated state.
 pub fn uninstall_game(app: &mut App, game: GameId) -> Result<(), String> {
+    // Prevent uninstall while a download is targeting this game
+    if app.download.as_ref().is_some_and(|dl| dl.game_id == game) {
+        return Err("cannot uninstall while a download is active for this game".to_owned());
+    }
+
     let gc = app.config.games.get(&game);
     let path = gc.and_then(|c| c.install_path.as_ref())
         .ok_or("no install path configured")?
@@ -452,6 +475,9 @@ pub fn uninstall_game(app: &mut App, game: GameId) -> Result<(), String> {
 
 /// Removes a component (proton or jadeite) and clears config.
 pub fn uninstall_component(app: &mut App, component: &str) -> Result<(), String> {
+    if app.download.is_some() {
+        return Err("cannot uninstall components while a download is active".to_owned());
+    }
     let data_dir = crate::config::app_data_dir();
     match component {
         "proton" => {
@@ -519,15 +545,22 @@ pub fn apply_vo_changes(
         tokio::spawn(async move {
             let ops = Operations::new(client, crate::config::app_data_dir());
             for lang in &added {
+                if handle.is_cancelled() {
+                    return;
+                }
                 if let Err(e) = ops.verify(game, lang, &path_str, tx.clone()).await {
                     let msg = e.to_string();
-                    if !msg.to_lowercase().contains("cancel") {
-                        let _ = tx.send(SophonProgress::Error { message: format!("VO download failed for {lang}: {msg}") }).await;
+                    if msg.to_lowercase().contains("cancel") {
                         return;
                     }
+                    let _ = tx.send(SophonProgress::Error { message: format!("VO download failed for {lang}: {msg}") }).await;
+                    let _ = tx.send(SophonProgress::Finished).await;
+                    return;
                 }
             }
-            let _ = tx.send(SophonProgress::Finished).await;
+            if !handle.is_cancelled() {
+                let _ = tx.send(SophonProgress::Finished).await;
+            }
         });
     }
 }

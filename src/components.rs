@@ -100,6 +100,23 @@ impl ComponentManager {
         })?;
 
         let download_url = resolve_download_url(module, name);
+
+        // Pre-flight: verify extraction tool exists before downloading
+        let extract_tool = if name == "proton" { "tar" } else { "unzip" };
+        if std::process::Command::new("which")
+            .arg(extract_tool)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| !s.success())
+            .unwrap_or(true)
+        {
+            return Err(ComponentError::Other(format!(
+                "'{}' is not installed — required to extract {}",
+                extract_tool, name
+            )));
+        }
+
         let mut response = self.client.get(&download_url).send().await?.error_for_status()?;
         let total = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
@@ -133,6 +150,36 @@ impl ComponentManager {
                 "{} download incomplete: got {} of {} bytes",
                 name, downloaded, total
             )));
+        }
+
+        // Verify hash integrity
+        if !module.hash.is_empty() {
+            let expected_hash = module.hash.clone();
+            let archive_for_hash = archive_path.clone();
+            let actual_hash = tokio::task::spawn_blocking(move || {
+                use md5::{Md5, Digest};
+                use std::io::Read;
+                let mut file = std::fs::File::open(&archive_for_hash)?;
+                let mut hasher = Md5::new();
+                let mut buf = [0u8; 64 * 1024];
+                loop {
+                    let n = file.read(&mut buf)?;
+                    if n == 0 { break; }
+                    hasher.update(&buf[..n]);
+                }
+                Ok::<String, std::io::Error>(format!("{:x}", hasher.finalize()))
+            })
+            .await
+            .map_err(|e| ComponentError::Other(format!("hash task failed: {e}")))?
+            .map_err(ComponentError::Io)?;
+
+            if actual_hash != expected_hash {
+                let _ = std::fs::remove_file(&archive_path);
+                return Err(ComponentError::Other(format!(
+                    "{} hash mismatch: expected {}, got {}",
+                    name, expected_hash, actual_hash
+                )));
+            }
         }
 
         // Flush channel before sending extracting state

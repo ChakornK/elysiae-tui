@@ -8,6 +8,10 @@ use thiserror::Error;
 pub enum HttpError {
     #[error("HTTP {code} from {url}")]
     Status { code: u16, url: String },
+    #[error("response too large ({size} bytes) from {url}")]
+    TooLarge { size: u64, url: String },
+    #[error("JSON parse error for {url}: {detail}")]
+    Parse { url: String, detail: String },
     #[error("request timeout: {0}")]
     Timeout(String),
     #[error("network error: {0}")]
@@ -28,13 +32,38 @@ pub fn build_client() -> Client {
         .expect("failed to build HTTP client")
 }
 
+/// Max response body size for JSON endpoints (16 MB).
+const MAX_JSON_BODY: usize = 16 * 1024 * 1024;
+
 /// Fetches JSON from a URL, returning an error on non-2xx status.
+/// Streams the body with a 16 MB cap to prevent OOM on unbounded responses.
 pub async fn fetch_json<T: serde::de::DeserializeOwned>(
     client: &Client,
     url: &str,
 ) -> Result<T, HttpError> {
-    let resp = client.get(url).send().await?.error_for_status()?;
-    Ok(resp.json().await?)
+    let mut resp = client.get(url).send().await?.error_for_status()?;
+    if resp.content_length().is_some_and(|len| len > MAX_JSON_BODY as u64) {
+        return Err(HttpError::TooLarge {
+            size: resp.content_length().unwrap(),
+            url: url.to_owned(),
+        });
+    }
+    let mut buf = Vec::with_capacity(
+        resp.content_length().unwrap_or(8192).min(MAX_JSON_BODY as u64) as usize
+    );
+    while let Some(chunk) = resp.chunk().await? {
+        if buf.len() + chunk.len() > MAX_JSON_BODY {
+            return Err(HttpError::TooLarge {
+                size: (buf.len() + chunk.len()) as u64,
+                url: url.to_owned(),
+            });
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    serde_json::from_slice(&buf).map_err(|e| HttpError::Parse {
+        url: url.to_owned(),
+        detail: e.to_string(),
+    })
 }
 
 /// Starts a streaming download, returning an error on non-2xx status.

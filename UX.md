@@ -1,545 +1,553 @@
-# Userflow Design: elysiae-tui
+# User Interaction Flows
 
-## Application State Machine
+Conventions:
+- `([text])` = terminal (start/end)
+- `[text]` = action
+- `{text}` = decision
+- `|label|` = edge annotation
 
-Single screen with modal overlays. All input feeds one decision tree.
+---
 
-```mermaid
-stateDiagram-v2
-    [*] --> GameList : Startup
+## 1. Navigation
 
-    GameList --> Settings : s
-    GameList --> Help : ?
-
-    Settings --> GameList : Esc
-    Settings --> VOModal : Enter on "Manage VOs"
-
-    VOModal --> Settings : Esc
-
-    Help --> GameList : any key
-
-    state "Modal Overlays" as Modals {
-        ErrorModal : any key dismisses
-        ConfirmDialog : ←/→/Enter/Esc
-    }
-
-    GameList : (main view)
-```
-
-## Per-Game State Derivation
-
-Each game resolves to one state. Checked top-to-bottom, first match wins:
-
-```
-fn game_state(app, game) -> GameState:
-    if app.download.is_some() AND dl.game_id == game:
-        return Downloading (or Updating/Preinstalling based on op type)
-    
-    let gs = app.games[game]
-    
-    if gs.has_resume:
-        return Resumable
-    
-    if gs.installed_tag.is_some():
-        if gs.update_info.update_available:
-            return UpdateAvailable
-        else:
-            return Installed
-    
-    return NotInstalled
-```
-
-### State → UI Mapping
-
-| Game State | Button Label | Enter Action | Available Keys |
-|-----------|-------------|-------------|----------------|
-| NotInstalled | `Get Game` | `start_download()` | — |
-| Resumable | `Resume` | `start_resume()` | — |
-| Installed | `Launch` | `prepare_and_launch()` | `v` verify |
-| UpdateAvailable | `Update` | `start_update()` | `p` preinstall, `a` apply |
-| Downloading | `Downloading...` | no-op | `p` pause/resume, `c` cancel |
-| Updating | `Updating...` | no-op | `p` pause/resume, `c` cancel |
-
-## Startup Sequence
-
-```mermaid
-sequenceDiagram
-    participant App
-    participant Config
-    participant Terminal
-    participant Games
-    participant Background
-
-    App->>Config: Load from disk (or create default)
-    Note over Config: Migrate vo_lang → vo_langs
-    App->>Terminal: Install panic hook (terminal restore)
-    App->>Terminal: Enter raw mode + alternate screen (TerminalGuard)
-    App->>App: Initialize app state
-
-    loop For each game with install_path
-        App->>Games: Read .sophon_version tag
-        App->>Games: Check if exe exists
-        App->>Games: Check if state file OR chunks/ dir exists
-        Note over Games: installed_tag = exe exists<br/>has_resume = state exists & not installed
-    end
-
-    App->>App: Load quadrant cache (instant)
-    App->>Background: Spawn: sync + encode background images
-    App->>Background: Spawn: check updates on installed games
-    App->>App: Enter main event loop
-    Note over App: Games with has_resume show "Resume" button
-```
-
-## Main Event Loop (per tick, 33ms)
+Two views: GameList (default) and Settings (overlay). Modals stack on top of either.
 
 ```mermaid
 flowchart TD
-    Start([Loop Start]) --> Shutdown{Shutdown signal?}
-    Shutdown -->|Yes| Break([Break])
+    Start([App Launch]) --> GameList[Game List View]
+    GameList -->|s| Settings[Settings View]
+    GameList -->|?| Help[Help Overlay]
+    Settings -->|Esc| GameList
+    Settings -->|Enter on Manage VOs| VOModal[VO Manager Modal]
+    Settings -->|Enter on Uninstall| Confirm[Confirm Dialog]
+    VOModal -->|Esc| Settings
+    VOModal -->|Enter| ApplyVO([Apply and close])
+    Confirm -->|y / Enter on Yes| Execute([Execute action])
+    Confirm -->|Esc / n| Settings
+    Help -->|Any key| GameList
+```
+
+---
+
+## 2. Game State Derivation
+
+Each game resolves to one state. First match wins.
+
+```mermaid
+flowchart TD
+    Start([Evaluate Game]) --> DLActive{Download active for this game?}
+    DLActive -->|Yes| Downloading([Downloading / Updating])
+    DLActive -->|No| HasResume{State file or chunks dir AND exe missing?}
+    HasResume -->|Yes| Resumable([Resumable])
+    HasResume -->|No| HasTag{Installed tag AND exe exists?}
+    HasTag -->|No| NotInstalled([Not Installed])
+    HasTag -->|Yes| HasUpdate{Update available?}
+    HasUpdate -->|Yes| UpdateAvailable([Update Available])
+    HasUpdate -->|No| Installed([Installed])
+```
+
+### State Actions
+
+| State | Button | Enter Action | Extra Keys |
+|-------|--------|--------------|------------|
+| Not Installed | Get Game | Start download | — |
+| Resumable | Resume | Resume download | — |
+| Installed | Launch | Prepare and launch | `v` verify |
+| Update Available | Update | Start update | `p` preinstall, `a` apply |
+| Downloading / Updating | Downloading... | No-op | `p` pause/resume, `c` cancel |
+
+---
+
+## 3. Startup
+
+```mermaid
+flowchart TD
+    Start([main]) --> LoadConfig[Load config from disk]
+    LoadConfig --> Corrupt{Deserializes as Config struct?}
+    Corrupt -->|No| Preserve[Rename to config.json.corrupted-timestamp, use default]
+    Corrupt -->|Yes| InitTerm
+    Preserve --> InitTerm[Install panic hook + enter raw mode]
+    InitTerm -->     InitApp[Create App state]
+    InitApp --> SpawnSignal[Spawn signal handler]
+    SpawnSignal --> ScanGames[For each game with install_path]
+    ScanGames --> ReadTag[Read .sophon_version tag]
+    ReadTag --> CheckExe[Check exe exists]
+    CheckExe --> CheckState[Check state file and chunks dir]
+    CheckState --> DeriveState[Set installed_tag and has_resume]
+    DeriveState --> SyncComponents[Read proton.tag and jadeite.tag from disk]
+    SyncComponents --> LoadCache[Load quadrant background cache]
+    LoadCache --> SpawnBG[Spawn: sync and encode background images]
+    SpawnBG --> SpawnUpdate[Spawn: check updates for installed games]
+    SpawnUpdate --> EnterLoop([Enter Main Event Loop])
+```
+
+---
+
+## 4. Main Event Loop
+
+Runs every 33ms.
+
+```mermaid
+flowchart TD
+    Tick([Loop Tick]) --> Shutdown{Shutdown signal?}
+    Shutdown -->|Yes| CancelDL[Cancel active download]
+    CancelDL --> Break([Break and Exit])
     Shutdown -->|No| Render[Render frame]
-    Render --> PollBG[Poll background task results<br/>images, update info]
-    PollBG --> PollEvents[Poll terminal events]
-
-    PollEvents --> Resize{Resize?}
-    Resize -->|Yes| ClearCache[Clear + reload cache]
-    Resize -->|No| KeyPress{Key press?}
-
-    KeyPress --> DL{Download active?<br/>p/c pressed?}
-    DL -->|Yes| DLCtrl[Handle download control]
-    DL -->|No| VO{VO modal open?}
-    VO -->|Yes| VOHandle[Up/Down/Space/Enter/Esc]
-    VO -->|No| Confirm{Confirm dialog?}
-    Confirm -->|Yes| ConfHandle[←/→/Enter/y/Esc/n]
-    Confirm -->|No| ErrModal{Error/Status modal?}
-    ErrModal -->|Yes| Dismiss1[Any key dismisses]
-    ErrModal -->|No| Help{Help overlay?}
-    Help -->|Yes| Dismiss2[Any key dismisses]
-    Help -->|No| Route[Route to view handler<br/>GameList or Settings]
-
-    ClearCache --> Drain
-    DLCtrl --> Drain
-    VOHandle --> Drain
-    ConfHandle --> Drain
-    Dismiss1 --> Drain
-    Dismiss2 --> Drain
-    Route --> Drain
-
-    Drain[Drain progress channel → update_progress] --> DrainLog[Drain log channel → append to launch_log]
-    DrainLog --> Launch{ready_to_launch?}
-    Launch -->|Yes| Spawn[Spawn game]
-    Launch -->|No| Quit{should_quit?}
-    Spawn --> Quit
-    Quit -->|Yes| Break
-    Quit -->|No| Start
+    Render --> PollBG[Poll background task results]
+    PollBG --> PollUpdate[Poll update check results]
+    PollUpdate --> AutoCheck{Auto-update or auto-preload enabled AND game has update AND no download active?}
+    AutoCheck -->|Yes| StartAuto[Start auto download for first eligible game]
+    AutoCheck -->|No| PollInput
+    StartAuto --> PollInput[Poll terminal events for 33ms]
+    PollInput --> HasEvent{Event type?}
+    HasEvent -->|None| Drain
+    HasEvent -->|Resize| ReloadCache[Clear and reload background cache]
+    HasEvent -->|Key press| Dispatch[Input dispatch chain]
+    ReloadCache --> Drain
+    Dispatch --> Drain[Drain progress channel]
+    Drain --> DrainLog[Drain log channel]
+    DrainLog --> LaunchReady{ready_to_launch?}
+    LaunchReady -->|Yes| SpawnGame[Launch game process]
+    LaunchReady -->|No| Quit{should_quit?}
+    SpawnGame --> Quit
+    Quit -->|Yes| SaveConfig[Save selected_game to config]
+    SaveConfig --> Break
+    Quit -->|No| Tick
 ```
 
-## Key Dispatch (Game List View)
+---
+
+## 5. Input Dispatch
+
+First matching handler consumes the key.
 
 ```mermaid
 flowchart TD
-    KP[Key Press] --> DC{Download active?}
-
-    DC -->|Yes, 'p'| PAUSE[Pause/Resume]
-    DC -->|Yes, 'c'| CANCEL[Open Cancel Dialog]
-    DC -->|No / other key| MS{Modal open?}
-
-    subgraph Priority 1: Download Controls
-        PAUSE
-        CANCEL
-    end
-
-    MS -->|vo_modal| VO[Up/Down/Space/Enter/Esc]
-    MS -->|confirm dialog| CD[←/→/Enter/y/Esc/n]
-    MS -->|error_message| EM[Any key dismisses]
-    MS -->|status_message| SM[Any key dismisses]
-    MS -->|show_help| SH[Any key dismisses]
-    MS -->|None| VK{View Keys}
-
-    subgraph Priority 2: Modal Stack
-        VO
-        CD
-        EM
-        SM
-        SH
-    end
-
-    VK -->|q| QUIT[Quit]
-    VK -->|←/→/Tab/BackTab| SWITCH[Switch Game]
-    VK -->|1-4| JUMP[Jump to Game]
-    VK -->|Up/Down| SCROLL[Scroll Log]
-    VK -->|Enter| PRIMARY[Primary Action]
-    VK -->|v| VERIFY[Verify]
-    VK -->|p| PRE[Preinstall]
-    VK -->|a| APPLY[Apply Preinstall]
-    VK -->|s| SETTINGS[Settings View]
-    VK -->|?| HELP[Help Overlay]
-    VK -->|other| IGNORE[Ignored]
-
-    subgraph Priority 3: View Keys
-        QUIT
-        SWITCH
-        JUMP
-        SCROLL
-        PRIMARY
-        VERIFY
-        PRE
-        APPLY
-        SETTINGS
-        HELP
-        IGNORE
-    end
+    Key([Key Press]) --> CtrlC{Ctrl+C?}
+    CtrlC -->|Yes| Quit([Quit])
+    CtrlC -->|No| DLBypass{Download active AND key is p or c?}
+    DLBypass -->|Yes| RouteView
+    DLBypass -->|No| ErrModal{Error message shown?}
+    ErrModal -->|Yes| DismissErr([Dismiss error])
+    ErrModal -->|No| StatusModal{Status message shown?}
+    StatusModal -->|Yes| DismissStatus([Dismiss status])
+    StatusModal -->|No| VOOpen{VO modal open?}
+    VOOpen -->|Yes| HandleVO([Handle VO modal input])
+    VOOpen -->|No| DialogOpen{Confirm dialog open?}
+    DialogOpen -->|Yes| HandleDialog([Handle dialog input])
+    DialogOpen -->|No| HelpOpen{Help overlay shown?}
+    HelpOpen -->|Yes| DismissHelp([Dismiss help])
+    HelpOpen -->|No| RouteView{Current view?}
+    RouteView -->|GameList| GameListHandler([Game List key handler])
+    RouteView -->|Settings| SettingsHandler([Settings key handler])
 ```
 
-## Key Dispatch (Settings View)
+The `p`/`c` bypass skips modals but routes through the view handler. GameList handles `p`/`c` (Section 6); Settings ignores them.
+
+---
+
+## 6. Game List Keys
 
 ```mermaid
 flowchart TD
-    A[KEY PRESS] --> B{Key?}
-    B -->|Up/Down| C[Move cursor\nskips headers]
-    B -->|Enter| D{Selected item?}
-    B -->|Esc| E[Return to Game List]
-    B -->|Other| F[Ignored]
-    D -->|Manage VOs| G[Open VO modal]
-    D -->|Uninstall game| H[Open confirm dialog]
-    D -->|Uninstall Proton| I[Open confirm dialog]
-    D -->|Uninstall Jadeite| J[Open confirm dialog]
+    Key([Key in Game List]) --> IsDL{Download active?}
+    IsDL -->|Yes| DLKey{Key?}
+    IsDL -->|No| Which
+    DLKey -->|p| TogglePause([Toggle pause/resume])
+    DLKey -->|c| OpenCancel([Open cancel confirm dialog])
+    DLKey -->|Other| Which{Key?}
+    Which -->|q| Quit([Set should_quit])
+    Which -->|Left / Right / Tab / BackTab| SwitchGame([Switch selected game])
+    Which -->|1-4| JumpGame([Jump to game by index])
+    Which -->|Up / Down| ScrollLog([Scroll launch log if game running])
+    Which -->|Enter| PrimaryAction([Primary action per Section 6 Enter Key])
+    Which -->|v| Verify{Installed AND no download?}
+    Which -->|p| PreinstallCheck{Preinstall available AND no download AND not yet downloaded?}
+    Which -->|a| ApplyCheck{Preinstall downloaded AND update available AND no download?}
+    Which -->|s| OpenSettings([Switch to Settings view])
+    Which -->|?| ShowHelp([Show help overlay])
+    Which -->|Other| Ignore([No-op])
+    Verify -->|Yes| StartVerify([Start verify])
+    Verify -->|No| Ignore
+    PreinstallCheck -->|Yes| StartPreinstall([Start preinstall download])
+    PreinstallCheck -->|No| Ignore
+    ApplyCheck -->|Yes| ApplyPreinstall([Apply preinstall patch])
+    ApplyCheck -->|No| Ignore
 ```
 
-## Confirm Dialog
-
-```mermaid
-block-beta
-  columns 1
-  block:dialog["Cancel Download"]
-    columns 2
-    msg["Cancel the active download?"]:2
-    space:2
-    yes["[y] Yes"]
-    no["[esc] No"]
-  end
-```
-
-Controls:
-- `←/→` move selection between Yes and No
-- `Enter` activate selected button
-- `y` immediately confirm (shortcut)
-- `Esc/n` immediately dismiss
-
-Default selection: No (prevents accidental destructive action)
-
-## VO Manager Modal
-
-```mermaid
-block-beta
-  columns 1
-  block:modal["Manage Voice-Overs"]
-    columns 1
-    en["[x] English (en-us)"]
-    ja["[x] Japanese (ja-jp)"]
-    zhcn["[ ] Chinese Simplified (zh-cn)"]
-    zhtw["[ ] Chinese Traditional (zh-tw)"]
-    ko["[ ] Korean (ko-kr)"]
-    space[" "]
-    footer["[space] toggle  [enter] apply  [esc]"]
-  end
-```
-
-Rules:
-- At least one language must remain enabled
-- Toggling the last enabled language is a no-op
-- On apply: config saves immediately, new langs trigger download
-
-## Settings View Layout
-
-```mermaid
-block-beta
-  columns 1
-  block:settings["Settings"]
-    columns 1
-    gh["─── Genshin Impact ───"]
-    gvo["Manage VOs (2 enabled)  ← cursor"]
-    gun["Uninstall game"]
-    sh["─── Honkai: Star Rail ───"]
-    svo["Manage VOs (1 enabled)"]
-    sun["Uninstall game"]
-    ch["─── Components ───"]
-    cp["Proton: GE-Proton9-22"]
-    cpu["Uninstall Proton"]
-    cj["Jadeite: 3.1.0"]
-    cju["Uninstall Jadeite"]
-    nav["[↑/↓] navigate  [enter] select  [esc] back"]
-  end
-```
-
-Only installed games appear. Cursor skips non-selectable rows (headers, component info). Uninstall items render red.
-
-## Download Lifecycle
+### Enter Key (Primary Action)
 
 ```mermaid
 flowchart TD
-    A["User presses Enter on<br/>NotInstalled / Resumable / UpdateAvailable"]
-    A --> B["start_download / start_resume / start_update"]
-    B --> C["Set app.download = Some(ActiveDownload)"]
-    C --> D["spawn_operation (tokio::spawn)"]
-
-    D --> E
-
-    subgraph ensure["ensure_components (Proton, Jadeite)"]
-        E["Download + extract if missing/outdated"]
-        E --> E1["Progress via SophonProgress events"]
-        E --> E2["Cancellable via handle"]
-    end
-
-    ensure --> F
-
-    subgraph install["ops.download / ops.update / ops.preinstall"]
-        F["build_installers (fetch manifest from API)"]
-        F --> G["build_resume_context (load state file)"]
-        G -->|hash matches| G1["Resume with prior chunks"]
-        G -->|hash differs| G2["Discard stale, start fresh"]
-        G1 --> H
-        G2 --> H
-        H["game_installer::install (irmin core)"]
-        H --> H1["Download chunks (concurrent, retried)"]
-        H --> H2["state_saver persists progress atomically"]
-        H --> H3["Assemble files (decompress, verify hashes)"]
-        H --> H4["Write .sophon_version tag"]
-        H1 & H2 & H3 & H4 --> I["On success: remove state file"]
-    end
-
-    install --> J["run_post_install (plugins + channel SDKs)"]
-    J --> K["Send SophonProgress::Finished"]
-
-    K --> L
-
-    subgraph cleanup["app.update_progress(Finished)"]
-        L["gs.has_resume = false"]
-        L --> M["gs.installed_tag = read from disk"]
-        M --> N["app.download = None"]
-    end
-
-    N --> O(["UI shows Launch button"])
+    Enter([Enter pressed]) --> DLActive{Download active?}
+    DLActive -->|Yes| Noop([No-op])
+    DLActive -->|No| HasResume{has_resume?}
+    HasResume -->|Yes| Resume([Start resume])
+    HasResume -->|No| HasUpdate{Update available?}
+    HasUpdate -->|Yes| Update([Start update])
+    HasUpdate -->|No| IsInstalled{Installed?}
+    IsInstalled -->|No| Download([Start fresh download])
+    IsInstalled -->|Yes| GameRunning{Game already running?}
+    GameRunning -->|Yes| NoopRunning([No-op])
+    GameRunning -->|No| Launch([Prepare and launch])
 ```
 
-## Cancel Flow
+---
+
+## 7. Settings Keys
 
 ```mermaid
 flowchart TD
-    A([User presses 'c' during active download]) --> B(Confirm dialog opens<br/>default: No selected)
-    B --> C{User presses 'y' or<br/>selects Yes + Enter?}
-    C -->|Yes| D(app.finish_download)
-    D --> E(handle.cancel → irmin stops)
-    D --> F{state file exists AND<br/>chunks/ dir exists AND<br/>exe missing?}
-    F -->|YES| G(gs.has_resume = true<br/>button becomes 'Resume')
-    F -->|NO| H(gs.has_resume = false<br/>button becomes 'Get Game')
-    D --> I(app.download = None)
-    D --> J(Remove partial component archives)
+    Key([Key in Settings]) --> Which{Key?}
+    Which -->|Esc| Return([Return to Game List])
+    Which -->|Up / Down| MoveCursor([Move cursor, skip headers, wrap])
+    Which -->|Enter| Activate{Selected item type?}
+    Which -->|Other| Ignore([No-op])
+    Activate -->|Manage VOs| OpenVO([Open VO manager modal])
+    Activate -->|Uninstall Game| ConfirmGame([Open confirm: Uninstall game?])
+    Activate -->|Uninstall Component| ConfirmComp([Open confirm: Uninstall component?])
 ```
 
-## Resume Flow
+Installed games appear. The download-active guard for uninstall runs in the action handler (Section 16), not here.
+
+---
+
+## 8. Confirm Dialog
 
 ```mermaid
 flowchart TD
-    A([User presses Enter on game<br/>with has_resume = true]) --> B(start_resume)
-    B --> C(Load state file)
-    C --> D{DownloadType?}
-    D -->|Fresh| E(Op::Download)
-    D -->|Update| F(Op::Update)
-    D -->|Preinstall| G(Op::Preinstall)
-    E --> H(spawn_operation op)
-    F --> H
-    G --> H
-    H --> I(ops.download / update / preinstall)
-    I --> J(build_resume_context)
-    J --> K(Load state file)
-    J --> L{manifest_hash vs<br/>current remote?}
-    L -->|Match| M(Pass prev_downloaded_chunks<br/>+ is_resume = true)
-    L -->|Mismatch| N(Discard chunks, start fresh)
-    J --> O(Create new state_saver closure)
-    M --> P(game_installer::install<br/>resumes from checkpoint)
-    N --> P
-    O --> P
+    Open([Dialog Opens, default: No]) --> Key{Key?}
+    Key -->|Left| SelectYes[Select Yes]
+    Key -->|Right| SelectNo[Select No]
+    Key -->|y| ExecuteAction([Execute confirmed action])
+    Key -->|Enter| CheckSel{Yes selected?}
+    Key -->|Esc / n| Dismiss([Dismiss dialog])
+    CheckSel -->|Yes| ExecuteAction
+    CheckSel -->|No| Dismiss
+    SelectYes --> Key
+    SelectNo --> Key
 ```
 
-## Launch Flow
+Dialog actions by kind:
+- Cancel Download: calls `finish_download()`
+- Uninstall Game: removes game directory and clears state
+- Uninstall Component: removes component directory and clears config
+
+---
+
+## 9. VO Manager Modal
+
+Languages: en-us, ja-jp, zh-cn, zh-tw, ko-kr. At least one must stay enabled.
 
 ```mermaid
 flowchart TD
-    A([User presses Enter on Installed game]) --> B[prepare_and_launch]
-    B --> C{Proton/Jadeite available?}
-    C -->|All present| D[ready_to_launch = true]
-    C -->|Missing| E[Start component install<br/>launch_on_complete = true]
-    E --> F[Progress overlay shown]
-    F --> D
-    D -->|Next loop tick| G[launch_game]
-    G --> H[Clear launch log]
-    H --> I[Set game_running = true]
-    I --> J["Spawn: sh -c {proton} run {jadeite?} {game_exe}"]
-    J --> K[STEAM_COMPAT_DATA_PATH<br/>__NV_DISABLE_EXPLICIT_SYNC=1]
-    J --> L[kill_on_drop = true]
-    J --> M[Stream stdout/stderr → log_tx → launch_log]
-    J --> N[On exit: send __PROCESS_EXIT__ sentinel]
-    G --> O[/TUI remains interactive<br/>Game output visible via Up/Down scroll/]
+    Open([Modal opens with current langs checked]) --> Key{Key?}
+    Key -->|Up / Down| MoveCursor[Move cursor, wraps]
+    Key -->|Space| LastLang{Last enabled lang?}
+    LastLang -->|Yes| Key
+    LastLang -->|No| ToggleLang[Toggle language on/off]
+    Key -->|Enter| CloseModal[Close modal]
+    Key -->|Esc| Cancel([Close without saving])
+    ToggleLang --> Key
+    MoveCursor --> Key
+    CloseModal --> SaveConfig[Save config to disk]
+    SaveConfig --> ComputeDiff[Diff old vs new langs]
+    ComputeDiff --> SpawnRemove[Spawn: remove Audio dirs for disabled langs]
+    ComputeDiff --> StartDownload[Start verify/download for added langs]
+    SpawnRemove --> Done([Complete])
+    StartDownload --> Done
 ```
 
-## Uninstall Flow (from Settings)
+The modal closes before file operations begin. Removal and addition run as independent spawned tasks. The download task checks for cancellation between languages and before sending Finished. If download of added langs fails, the config retains the new selection (optimistic commit).
+
+---
+
+## 10. Download Lifecycle
 
 ```mermaid
 flowchart TD
-    A1([User selects 'Uninstall game']) --> B1{"Confirm: Uninstall {game name}?"}
-    B1 -->|User confirms| C1[uninstall_game]
-    C1 --> D1[safe_remove_dir_all install_path]
-    D1 --> E1[Remove state file]
-    E1 --> F1[Clear installed_tag, has_resume, update_info]
-    F1 --> G1[Clear install_path from config]
-    G1 --> H1[Persist config atomically]
-
-    A2([User selects 'Uninstall Proton/Jadeite']) --> B2{"Confirm: Uninstall {component}?"}
-    B2 -->|User confirms| C2[uninstall_component]
-    C2 --> D2{Component type?}
-    D2 -->|Proton| E2[Remove proton/, proton-data/, proton.tag]
-    D2 -->|Jadeite| F2[Remove jadeite/, jadeite.tag]
-    E2 --> G2[Clear config.installed_components entry]
-    F2 --> G2
-    G2 --> H2[Persist config atomically]
+    Trigger([User triggers download / update / preinstall]) --> SetActive[Set app.download = ActiveDownload]
+    SetActive --> Spawn[Spawn async operation task]
+    Spawn --> EnsureProton[Ensure Proton installed and current]
+    EnsureProton --> CancelCheck{Cancelled?}
+    CancelCheck -->|Yes| Abort([Abort, clean up archives])
+    CancelCheck -->|No| NeedsJadeite{Game requires Jadeite?}
+    NeedsJadeite -->|Yes| EnsureJadeite[Ensure Jadeite installed and current]
+    NeedsJadeite -->|No| FetchManifest
+    EnsureJadeite --> FetchManifest[Fetch manifest from Sophon API]
+    FetchManifest --> BuildResume[Build resume context]
+    BuildResume --> HashMatch{Manifest hash matches state file?}
+    HashMatch -->|Yes| ResumeChunks[Load previous chunk progress]
+    HashMatch -->|No| FreshStart[Discard stale chunks, start fresh]
+    ResumeChunks --> Install[game_installer::install]
+    FreshStart --> Install
+    Install --> DownloadChunks[Download chunks with retries]
+    DownloadChunks --> AssembleFiles[Decompress and verify hashes]
+    AssembleFiles --> WriteTag[Write .sophon_version tag]
+    WriteTag --> RemoveState[Remove state file]
+    RemoveState --> SendFinishedOps[Send Finished event from ops layer]
+    SendFinishedOps --> IsPreinstall{Operation type?}
+    IsPreinstall -->|Preinstall| SendFinishedSpawn([Send Finished from spawn, complete])
+    IsPreinstall -->|Download / Update| PostInstall[Run post-install: plugins + channel SDKs]
+    PostInstall --> SendFinishedSpawn
 ```
 
-## Signal Handling
+A new download cancels any in-progress download before starting. State saver writes progress after each chunk batch (logs one warning per failure streak, resets on recovery). On non-cancel error: the spawn layer sends Error then Finished. On cancellation: the spawn layer sends nothing (the cancel UI flow already cleared `app.download`). The state file stays on disk for resume.
+
+Honkai: Star Rail is the one game requiring Jadeite. The cancellation check runs between Proton and Jadeite even if the game doesn't need Jadeite.
+
+---
+
+## 11. Component Installation
+
+The availability check and version comparison happen at the call site (Section 10); below is the install operation only.
 
 ```mermaid
 flowchart TD
-    A([SIGINT / Ctrl+C received]) --> B[shutdown_rx becomes true]
-    B --> C[Main loop checks at top of iteration]
-    C --> D{Download active?}
-    D -->|Yes| E[handle.cancel]
-    E --> F[state_saver has already persisted progress]
-    F --> G[Break from loop]
-    D -->|No| G
-    G --> H["TerminalGuard::drop() restores terminal"]
-    H --> I([Process exits cleanly])
+    Start([Install component]) --> FetchMeta[Fetch metadata JSON from aedes API]
+    FetchMeta --> ResolveArch[Resolve download URL for host arch]
+    ResolveArch --> Preflight{tar or unzip installed?}
+    Preflight -->|No| Fail([Error: missing extraction tool])
+    Preflight -->|Yes| Download[Stream download with progress]
+    Download --> VerifySize{Content-Length matches?}
+    VerifySize -->|No| DeletePartial[Delete partial archive]
+    VerifySize -->|Yes| VerifyHash[Compute MD5 hash]
+    DeletePartial --> FailSize([Error: size mismatch])
+    VerifyHash --> HashOK{Hash matches?}
+    HashOK -->|No| DeleteCorrupt[Delete corrupt archive]
+    HashOK -->|Yes| Extract{Component type?}
+    DeleteCorrupt --> FailHash([Error: hash mismatch])
+    Extract -->|Proton| TarExtract[tar xzf --strip-components=1]
+    Extract -->|Jadeite| UnzipExtract[unzip -o into jadeite dir]
+    TarExtract --> PostProton[Create proton-data dir]
+    UnzipExtract --> PostJadeite[Run block_analytics.sh if present]
+    PostProton --> CleanArchive[Delete archive file]
+    PostJadeite --> CleanArchive
+    CleanArchive --> WriteTag[Write component.tag with version]
+    WriteTag --> SendFinished([Return tag string to caller])
 ```
 
-## Error Recovery
+The caller's Finished event handler syncs `config.installed_components` from the `.tag` files on disk. Cancellation uses `tokio::select!` with the cancel future to abort mid-download and remove the partial archive.
 
-| Scenario | What happens |
-|----------|-------------|
-| Network timeout during download | irmin retries 5x internally; if all fail, Error event sent, state file preserved |
-| Panic in any code | Panic hook restores terminal, prints panic info |
-| `?` return inside TUI function | TerminalGuard Drop restores terminal |
-| Disk full during download | Write fails, Error event sent, state file has progress up to last successful chunk |
-| Corrupt config.json | Preserved as `.corrupted-{ts}`, fresh default created |
-| Game process crashes | Exit code shown in log, `game_running` cleared on `__PROCESS_EXIT__` |
-| Uninstall fails (permissions) | Error modal shown with OS error message |
-| VO download fails | Error modal shown, previously-enabled languages remain |
+---
 
-## Visual Layout (Game List)
-
-```mermaid
-block-beta
-  columns 1
-  block:terminal["Terminal"]
-    columns 1
-    block:tabbar["Tab Bar"]
-      columns 4
-      tab1["[1] Honkai Impact 3rd"]
-      tab2["[2] Genshin Impact"]
-      tab3["[3] ..."]
-      tab4["[4] ..."]
-    end
-    block:background["Background (quadrant-encoded image)"]
-      columns 1
-      space
-      block:infopanel["Info Panel (semi-transparent)"]
-        columns 1
-        title["Genshin Impact"]
-        version["Version: 6.7.0"]
-        badge["[Update available badge if applicable]"]
-      end
-      space
-    end
-    block:actionbar["Action Bar"]
-      columns 3
-      launch["[⏎] Launch"]
-      help["[?] help"]
-      quit["[q] quit"]
-    end
-  end
-```
-
-## Data Flow Diagram
+## 12. Cancel Flow
 
 ```mermaid
 flowchart TD
-    Config["Config (JSON)<br/>vo_langs: Vec&lt;String&gt; per game"]
-    AppState["App State"]
-    irmin["irmin (crate)"]
-    TUI["TUI Render (ui.rs)"]
-    mpsc["mpsc channel"]
-    Input["Input Handler"]
-    StateFile["State File (.sophon_state)"]
-
-    Config -->|"load at startup<br/>(migrates vo_lang → vo_langs)"| AppState
-    AppState --> irmin
-    AppState --> TUI
-    irmin -->|progress| mpsc
-    mpsc --> Input
-    Input -->|key events| AppState
-
-    StateFile -.-|"written on each chunk batch<br/>read on resume<br/>deleted on success"| irmin
+    Press([User presses c during download]) --> Dialog[Open confirm dialog, default: No]
+    Dialog --> Confirmed{User confirms?}
+    Confirmed -->|No| Dismiss([Dialog dismissed, download continues])
+    Confirmed -->|Yes| CancelHandle[handle.cancel signals irmin to stop]
+    CancelHandle --> CheckResume{State file or chunks dir AND exe missing?}
+    CheckResume -->|Yes| SetResume[has_resume = true]
+    CheckResume -->|No| SetNoResume[has_resume = false]
+    SetResume --> ClearDL[app.download = None]
+    SetNoResume --> ClearDL
+    ClearDL --> ClearReady[Clear ready_to_launch]
+    ClearReady --> CleanArchives([Remove partial proton.archive and jadeite.archive])
 ```
 
-## Config Schema
+Cancelling an update leaves the prior installation intact. State re-derives as Update Available per Section 2 (exe present, update pending). The cancelled spawned task sends no Finished event; the cancel UI flow already cleared `app.download`.
 
-```json
-{
-  "version": 1,
-  "selected_game": "hk4e",
-  "auto_update": true,
-  "auto_preload": true,
-  "games": {
-    "hk4e": {
-      "vo_langs": ["en-us", "ja-jp"],
-      "install_path": "/home/user/.local/share/elysiae-tui/games/hk4e"
-    },
-    "hkrpg": {
-      "vo_langs": ["en-us"],
-      "install_path": "/home/user/.local/share/elysiae-tui/games/hkrpg"
-    }
-  },
-  "installed_components": {
-    "proton": "GE-Proton9-22",
-    "jadeite": "3.1.0"
-  }
-}
-```
+---
 
-Backward compatible: old configs with `"vo_lang": "en-us"` auto-migrate to `"vo_langs": ["en-us"]` on load.
-
-## Session Lifecycle
+## 13. Resume Flow
 
 ```mermaid
-stateDiagram-v2
-    state "First Launch" as FL {
-        [*] --> NoConfig: No config found
-        NoConfig --> CreateDefault: Create default config
-        CreateDefault --> NoGames: All games show "Get Game"
-        NoGames --> BlankBG: No backgrounds cached
-        BlankBG --> UserSelect: User selects game, presses Enter
-        UserSelect --> AutoPath: Default install path auto-assigned
-        AutoPath --> Ready: Proton downloaded → game downloaded
-    }
+flowchart TD
+    Press([Enter on Resumable game]) --> LoadState[Load state file from disk]
+    LoadState --> DetermineOp{download_type in state?}
+    DetermineOp -->|Fresh| OpDownload[Op = Download]
+    DetermineOp -->|Update| OpUpdate[Op = Update]
+    DetermineOp -->|Preinstall| OpPreinstall[Op = Preinstall]
+    OpDownload --> SpawnOp[Spawn operation]
+    OpUpdate --> SpawnOp
+    OpPreinstall --> SpawnOp
+    SpawnOp --> Continue([Continues as Section 10 from EnsureProton onward])
+```
 
-    state "Normal Launch" as NL {
-        [*] --> ConfigLoaded: Config with paths + versions
-        ConfigLoaded --> ShowStatus: Installed → "Launch" or "Update"
-        ShowStatus --> CacheHit: Backgrounds from quadrant cache (<1ms)
-        CacheHit --> UpdateCheck: Update check runs in background
-        UpdateCheck --> LaunchNow: User presses Enter → launches immediately
-    }
+Section 10's `BuildResume` step compares the manifest hash to decide whether to reuse prior chunks or discard them.
 
-    state "Interrupted Session" as IS {
-        [*] --> StateFound: State file found on disk
-        StateFound --> ShowResume: Game shows "Resume" button
-        ShowResume --> Resume: User presses Enter → resumes from checkpoint
-    }
+---
+
+## 14. Launch Flow
+
+```mermaid
+flowchart TD
+    Press([Enter on Installed game]) --> CheckComp{Proton available? Jadeite if HSR?}
+    CheckComp -->|Yes| SetReady[ready_to_launch = true]
+    CheckComp -->|No| InstallComp[Start component install, launch_on_complete = true]
+    InstallComp --> Progress[Progress overlay shown]
+    Progress --> CompDone[Component install finishes]
+    CompDone --> SetReady
+    SetReady --> NextTick[Next loop tick]
+    NextTick --> ClearLog[Clear launch log buffer]
+    ClearLog --> SetRunning[game_running = true, launch_log_game = game]
+    SetRunning --> BuildCmd[Build command: proton run jadeite? game.exe]
+    BuildCmd --> SetEnv[Set STEAM_COMPAT_DATA_PATH, STEAM_COMPAT_CLIENT_INSTALL_PATH, __NV_DISABLE_EXPLICIT_SYNC]
+    SetEnv --> SpawnProc[Spawn child process, kill_on_drop = true]
+    SpawnProc --> PipeOutput[Stream stdout/stderr to log channel]
+    PipeOutput --> StreamLog[Log lines visible in TUI, scrollable]
+    StreamLog --> Exit[Game process exits]
+    Exit --> Sentinel[Send process exit sentinel]
+    Sentinel --> ClearRunning([game_running = false])
+```
+
+The TUI stays interactive during gameplay. Honkai: Star Rail is the one game using Jadeite.
+
+---
+
+## 15. Verify Flow
+
+```mermaid
+flowchart TD
+    Press([User presses v on Installed game]) --> SetActive[Set app.download = ActiveDownload for verify]
+    SetActive --> Spawn[Spawn verify operation]
+    Spawn --> FetchManifest[Fetch current manifest]
+    FetchManifest --> ScanFiles[Scan installed files against manifest hashes]
+    ScanFiles --> Mismatch{Missing or corrupt files?}
+    Mismatch -->|No| Finished([Finished, all files valid])
+    Mismatch -->|Yes| RedownloadChunks[Re-download affected chunks]
+    RedownloadChunks --> Reassemble[Reassemble affected files]
+    Reassemble --> FinishedRepaired([Finished, files repaired])
+```
+
+Reports progress via `CheckingFiles` and `Downloading` events.
+
+---
+
+## 16. Uninstall Flow
+
+```mermaid
+flowchart TD
+    SelectGame([User selects Uninstall Game]) --> ConfirmG{User confirms?}
+    ConfirmG -->|No| CancelGame([Dismissed])
+    ConfirmG -->|Yes| GuardGame{Download active for this game?}
+    GuardGame -->|Yes| Error([Error: cannot uninstall during download])
+    GuardGame -->|No| RemoveDir[safe_remove_dir_all on install_path]
+    RemoveDir --> RemoveState[Remove state file, best-effort]
+    RemoveState --> ClearStatus[Clear installed_tag, has_resume, update_info]
+    ClearStatus --> ClearConfig[Clear install_path from config]
+    ClearConfig --> SaveConfigGame([Save config])
+
+    SelectComp([User selects Uninstall Component]) --> ConfirmC{User confirms?}
+    ConfirmC -->|No| CancelComp([Dismissed])
+    ConfirmC -->|Yes| GuardComp{Any download active?}
+    GuardComp -->|Yes| ErrorComp([Error: cannot uninstall during download])
+    GuardComp -->|No| WhichComp{Component?}
+    WhichComp -->|Proton| RemoveProton[Remove proton/ fatal, proton-data/ and proton.tag best-effort]
+    WhichComp -->|Jadeite| RemoveJadeite[Remove jadeite/ fatal, jadeite.tag best-effort]
+    RemoveProton --> ClearCompConfig[Clear config.installed_components entry]
+    RemoveJadeite --> ClearCompConfig
+    ClearCompConfig --> SaveConfigComp([Save config])
+```
+
+---
+
+## 17. Signal Handling
+
+```mermaid
+flowchart TD
+    Signal([SIGINT or SIGTERM]) --> SetFlag[shutdown_rx = true]
+    SetFlag --> LoopChecks[Main loop checks at top of next tick]
+    LoopChecks --> DLActive{Download active?}
+    DLActive -->|Yes| CancelDL[handle.cancel, state already persisted by state_saver]
+    DLActive -->|No| Break
+    CancelDL --> Break[Break from loop]
+    Break --> SaveConfig[Save config]
+    SaveConfig --> DropGuard[TerminalGuard::drop restores terminal]
+    DropGuard --> Exit([Process exits cleanly])
+
+    Second([Second signal]) --> Restore[Restore terminal: LeaveAlternateScreen, disable raw mode]
+    Restore --> ForceExit([process::exit 130])
+```
+
+---
+
+## 18. Error Recovery
+
+| Scenario | Behavior |
+|----------|----------|
+| Network timeout during download | `irmin` retries 5x. All fail: `Error` event sent, state file preserved. |
+| Panic in any code | Panic hook restores terminal before printing backtrace. |
+| Early return with `?` in TUI | `TerminalGuard::drop` restores terminal. |
+| Disk full during download | Write fails, `Error` event sent, state file has progress to last successful chunk. Save-failure warning logs once per streak. |
+| Corrupt `config.json` | Renamed to `config.json.corrupted-{timestamp}`, fresh default created. |
+| Game process crash | Exit code shown in log, `game_running` cleared on sentinel. |
+| Uninstall fails (permissions) | Error modal shown with OS error. |
+| VO download fails | Error modal shown, config retains the new selection (optimistic). |
+| Component hash mismatch | Archive deleted, error reported. Retryable. |
+| Component extraction fails | Destination dir and archive both cleaned up. |
+| Log file creation fails | Logging disabled (tracing macros become no-ops). TUI unaffected. |
+
+---
+
+## 19. Progress Reporting
+
+```mermaid
+flowchart TD
+    Source([irmin or component task]) --> ProgressTX[Send SophonProgress via mpsc channel]
+    ProgressTX --> MainLoop[Main loop drains via try_recv each tick]
+    MainLoop --> UpdateApp[app.update_progress]
+    UpdateApp --> WhichEvent{Event type?}
+    WhichEvent -->|FetchingManifest| Label([Set status label])
+    WhichEvent -->|Downloading| DLBar([Update download progress bar])
+    WhichEvent -->|Paused| Freeze([Freeze progress, speed = 0])
+    WhichEvent -->|Assembling| AssembleBar([Update assembled files bar])
+    WhichEvent -->|Verifying| VerifyBar([Update verified files bar])
+    WhichEvent -->|CheckingFiles| CheckBar([Update checked files bar])
+    WhichEvent -->|CalculatingDownloads| CalcBar([Update calculating files bar])
+    WhichEvent -->|ApplyingPreinstall| ApplyBar([Update applied files bar])
+    WhichEvent -->|InstallingPlugins| PluginLabel([Set plugin status label])
+    WhichEvent -->|DownloadingPlugin| PluginBar([Update plugin download bar])
+    WhichEvent -->|Warning| OverrideHeader([Set header override text])
+    WhichEvent -->|Error| ShowError([Show error modal, clear download])
+    WhichEvent -->|Finished| FinishEvent([Clear download, sync tags, refresh state])
+```
+
+The loop discards stale progress events where `downloaded_bytes` decreases for the same `total_bytes`.
+
+---
+
+## 20. Config Persistence
+
+```mermaid
+flowchart TD
+    Change([Config change triggered]) --> Serialize[Serialize to pretty JSON]
+    Serialize --> WriteTmp[Write to .config.json.pid.tmp]
+    WriteTmp --> Rename[Atomic rename to config.json]
+    Rename --> Done([Saved])
+
+    Load([App startup]) --> ReadFile{config.json exists?}
+    ReadFile -->|No| Default([Use default config])
+    ReadFile -->|Yes| Parse{Deserializes as Config struct?}
+    Parse -->|Yes| Ready([Config ready])
+    Parse -->|No| Preserve[Rename to config.json.corrupted-timestamp, best-effort]
+    Preserve --> Default
+```
+
+Deserialization accepts both old `vo_lang: String` and current `vo_langs: Vec<String>` formats. Old single-string configs migrate on load.
+
+---
+
+## 21. First Launch vs Normal Launch
+
+```mermaid
+flowchart TD
+    Start([App starts]) --> HasConfig{Config file exists with install paths?}
+    HasConfig -->|No| CreateDefault[Create default config]
+    CreateDefault --> AllNotInstalled[All games show Get Game]
+    AllNotInstalled --> NoBG[No background images cached yet]
+    NoBG --> UserPicksGame[User picks game, presses Enter]
+    UserPicksGame --> AssignPath[Default install path auto-assigned]
+    AssignPath --> DownloadComp[Download Proton]
+    DownloadComp --> DownloadGame[Download game]
+    DownloadGame --> Ready([Game installed, shows Launch])
+
+    HasConfig -->|Yes| LoadExisting[Load config with paths and versions]
+    LoadExisting --> ShowState[Show per-game state: Launch or Update]
+    ShowState --> CacheHit[Backgrounds from quadrant cache]
+    CacheHit --> BGUpdateCheck[Background: check for updates]
+    BGUpdateCheck --> Interactive([User interacts immediately])
 ```

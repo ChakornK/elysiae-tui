@@ -13,9 +13,9 @@ Supports:
 
 - Download, update, verify, and launch games through Proton
 - Resume interrupted downloads
-- Pre-download upcoming version patches before they go live
+- Pre-download version patches before release
 - Manage multiple voice-over language packs per game
-- Auto-install GE-Proton
+- Auto-install GE-Proton and Jadeite
 
 ## Usage
 
@@ -77,7 +77,7 @@ Lives at `~/.config/elysiae-tui/config.json`. Created on first run.
 
 Data goes to `~/.local/share/elysiae-tui/` (logs, state, components, game installs). Cached backgrounds and quadrant data go to `~/.cache/elysiae-tui/`.
 
-Corrupt configs get preserved as `.corrupted-{timestamp}` and replaced with defaults.
+Corrupt configs get renamed to `config.json.corrupted-{timestamp}` and replaced with defaults.
 
 ## Project layout
 
@@ -86,24 +86,24 @@ src/
 ├── main.rs          Entry point, logging, CLI-vs-TUI dispatch
 ├── cli.rs           clap definitions, headless command execution
 ├── app.rs           Central state: active download, modals, progress routing
-├── config.rs        XDG paths, config load/save/migration
+├── config.rs        XDG paths, config load/save, backward-compat deserialization
 ├── game.rs          GameId enum, display names, exe paths
 ├── operations.rs    Wraps irmin for download/update/verify
 ├── state.rs         DownloadState persistence for resume (JSON, atomic writes)
 ├── components.rs    Proton + Jadeite download/extraction, arch checks
 ├── launcher.rs      Game launch via Proton, env vars, log streaming
-├── backgrounds.rs   Background image fetch from Chinese game API + caching
+├── backgrounds.rs   Background image fetch + caching
 ├── quadrant.rs      Unicode quadrant-block image encoding/rendering
 ├── transition.rs    Ripple-fade animation between backgrounds
 ├── postinstall.rs   Plugin and channel SDK install after game ops
-├── http.rs          HTTP client with retry
-├── atomic.rs        Atomic file writes, safe dir removal
+├── http.rs          Size-capped streaming fetch, retry, error variants
+├── atomic.rs        Atomic file writes, safe dir removal, corrupt preservation
 ├── disk.rs          Disk space checks
-├── signal.rs        SIGINT handler
+├── signal.rs        SIGINT/SIGTERM shutdown, second signal force-exits
 ├── ui.rs            TUI rendering: tabs, panels, overlays, settings
 └── tui/
     ├── mod.rs       Event loop, background task spawning
-    ├── guard.rs     TerminalGuard RAII (raw mode, alternate screen, panic hook)
+    ├── guard.rs     TerminalGuard RAII, panic hook
     ├── input.rs     Key dispatch
     └── actions.rs   Download/update/launch/uninstall orchestration
 ```
@@ -125,7 +125,7 @@ src/
 cargo test
 ```
 
-Integration tests cover CLI arg parsing. Config serialization roundtrips are property-tested with proptest.
+Integration tests cover CLI arg parsing. Config roundtrips are property-tested with proptest. Backward-compat deserialization is tested against legacy and corrupt config inputs.
 
 ## Notes
 

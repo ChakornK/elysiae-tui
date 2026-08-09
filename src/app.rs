@@ -24,26 +24,27 @@ pub struct SettingsState {
 /// Modal for managing per-game VO language selection.
 pub struct VoManagerModal {
     pub game: GameId,
-    pub enabled: [bool; 5],
+    pub enabled: Vec<bool>,
     pub cursor: usize,
 }
 
 impl VoManagerModal {
     /// Creates a new modal initialized from the game's current VO lang config.
     pub fn new(game: GameId, current_langs: &[String]) -> Self {
-        let mut enabled = [false; 5];
-        for (i, code) in VALID_LANGS.iter().enumerate() {
-            enabled[i] = current_langs.iter().any(|l| l == code);
-        }
+        let enabled: Vec<bool> = VALID_LANGS.iter()
+            .map(|code| current_langs.iter().any(|l| l == code))
+            .collect();
+        let mut modal = Self { game, enabled, cursor: 0 };
         // Ensure at least one is enabled
-        if !enabled.iter().any(|&e| e) {
-            enabled[0] = true;
+        if !modal.enabled.iter().any(|&e| e) && !modal.enabled.is_empty() {
+            modal.enabled[0] = true;
         }
-        Self { game, enabled, cursor: 0 }
+        modal
     }
 
     /// Toggles the lang at cursor. Refuses to disable the last enabled lang.
     pub fn toggle_current(&mut self) {
+        if self.cursor >= self.enabled.len() { return; }
         if self.enabled[self.cursor] {
             let count = self.enabled.iter().filter(|&&e| e).count();
             if count > 1 {
@@ -57,7 +58,7 @@ impl VoManagerModal {
     /// Returns the list of enabled language codes.
     pub fn selected_langs(&self) -> Vec<String> {
         VALID_LANGS.iter().enumerate()
-            .filter(|(i, _)| self.enabled[*i])
+            .filter(|(i, _)| self.enabled.get(*i).copied().unwrap_or(false))
             .map(|(_, code)| (*code).to_string())
             .collect()
     }
@@ -235,8 +236,11 @@ impl App {
             .unwrap_or(GameId::ALL.len() - 1);
     }
 
-    /// Begins tracking a new download. Stays on the current view.
+    /// Begins tracking a new download. Cancels any existing download first.
     pub fn start_download(&mut self, game_id: GameId, handle: DownloadHandle, op_label: &'static str) {
+        if let Some(prev) = self.download.take() {
+            prev.handle.cancel();
+        }
         self.download = Some(ActiveDownload {
             game_id,
             handle,

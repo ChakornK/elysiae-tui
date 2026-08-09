@@ -49,13 +49,26 @@ impl DownloadState {
 }
 
 /// Creates a closure that persists chunk progress to disk on each callback.
+/// Logs a single warning on save failure to avoid log spam.
 pub fn make_state_saver(initial: DownloadState, path: PathBuf) -> StateSaverFn {
     let state = Arc::new(Mutex::new(initial));
     let path = Arc::new(path);
+    let save_failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     Arc::new(move |chunks: &HashMap<String, u64>| {
-        if let Ok(mut s) = state.lock() {
-            s.downloaded_chunks = chunks.clone();
-            let _ = s.save(&path);
+        let mut s = match state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => {
+                tracing::error!("state mutex poisoned, recovering");
+                poisoned.into_inner()
+            }
+        };
+        s.downloaded_chunks = chunks.clone();
+        if let Err(e) = s.save(&path) {
+            if !save_failed.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                tracing::warn!("failed to persist download state: {e}");
+            }
+        } else {
+            save_failed.store(false, std::sync::atomic::Ordering::Relaxed);
         }
     })
 }

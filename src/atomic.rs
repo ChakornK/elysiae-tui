@@ -2,11 +2,20 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// Writes `data` to `target` atomically via a temporary file and rename.
+/// Writes `data` to `target` atomically via a unique temporary file and rename.
 pub fn atomic_write(target: &Path, data: &[u8]) -> io::Result<()> {
-    let tmp = target.with_extension("tmp");
+    let pid = std::process::id();
+    let tmp_name = format!(
+        ".{}.{pid}.tmp",
+        target.file_name().unwrap_or_default().to_string_lossy()
+    );
+    let tmp = target.with_file_name(tmp_name);
     fs::write(&tmp, data)?;
-    fs::rename(&tmp, target)
+    if let Err(e) = fs::rename(&tmp, target) {
+        let _ = fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// Removes a directory, but if the path is a symlink, only removes the symlink itself.
@@ -27,8 +36,9 @@ pub fn preserve_corrupt(path: &Path) -> io::Result<PathBuf> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let ext = format!("corrupted-{ts}");
-    let dest = path.with_extension(ext);
+    let mut dest_name = path.file_name().unwrap_or_default().to_os_string();
+    dest_name.push(format!(".corrupted-{ts}"));
+    let dest = path.with_file_name(dest_name);
     fs::rename(path, &dest)?;
     Ok(dest)
 }
