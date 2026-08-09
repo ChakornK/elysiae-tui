@@ -1276,7 +1276,7 @@ checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
 [[package]]
 name = "irmin"
 version = "1.0.0"
-source = "git+https://github.com/elysiae-project/irmin?rev=d6bd278#d6bd27851e4ea57e672940c47ab361b6d3b4c04d"
+source = "git+https://github.com/elysiae-project/irmin?rev=ef84b62#ef84b62bcbf1cc5d7c867e5ae4593f456a652b34"
 dependencies = [
  "dashmap",
  "fast-md5",
