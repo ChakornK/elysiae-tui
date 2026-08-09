@@ -36,8 +36,9 @@ pub fn preserve_corrupt(path: &Path) -> io::Result<PathBuf> {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    let ext = format!("corrupted-{ts}");
-    let dest = path.with_extension(ext);
+    let mut dest_name = path.file_name().unwrap_or_default().to_os_string();
+    dest_name.push(format!(".corrupted-{ts}"));
+    let dest = path.with_file_name(dest_name);
     fs::rename(path, &dest)?;
     Ok(dest)
 }
