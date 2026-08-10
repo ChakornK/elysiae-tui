@@ -303,6 +303,7 @@ impl App {
                     return;
                 }
                 dl.status_label = None;
+                dl.check_progress = None;
                 dl.download_progress = Some(DownloadPhase {
                     downloaded_bytes,
                     total_bytes,
