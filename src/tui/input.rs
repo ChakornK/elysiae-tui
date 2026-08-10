@@ -137,7 +137,7 @@ async fn handle_main(
             }
         }
         // Preinstall: only when no download active and preinstall available
-        KeyCode::Char('p') => {
+        KeyCode::Char('r') => {
             let game = app.selected_game();
             let has_preinstall = app.games.get(&game)
                 .and_then(|s| s.update_info.as_ref())

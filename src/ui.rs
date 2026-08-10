@@ -396,7 +396,7 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect) {
         )),
         Line::from(Span::styled("v        verify", Style::default().fg(TEXT))),
         Line::from(Span::styled(
-            "p        preinstall",
+            "r        preinstall",
             Style::default().fg(TEXT),
         )),
         Line::from(Span::styled(
@@ -1120,7 +1120,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 
     // Preinstall button (secondary, to the left of primary with 2 col gap)
     if has_preinstall && app.download.is_none() {
-        let pre_label = "[p] Preinstall";
+        let pre_label = "[r] Preinstall";
         let pre_content_w = pre_label.len() as u16;
         let pre_island_w = pre_content_w + 4;
         let pre_rect = Rect::new(
