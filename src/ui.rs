@@ -1135,7 +1135,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     // Stays visible during a preinstall (labeled "Preinstalling..."), disabled.
     if (has_preinstall && app.download.is_none()) || preinstall_active {
         let pre_label = if preinstall_active {
-            "Preinstalling..."
+            "[r] Preinstalling..."
         } else {
             "[r] Preinstall"
         };
