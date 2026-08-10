@@ -412,12 +412,16 @@ impl App {
             let game_id = dl.game_id;
             if let Some(gs) = self.games.get_mut(&game_id) {
                 let data_dir = crate::config::app_data_dir();
-                let state_path = crate::state::DownloadState::state_path(&data_dir, game_id.as_str());
-                let gc = self.config.games.get(&game_id);
-                let install_path = gc.and_then(|c| c.install_path.as_ref());
-                let has_chunks = install_path.map(|p| p.join("chunks").exists()).unwrap_or(false);
-                let exe_exists = install_path.map(|p| p.join(game_id.exe_name()).exists()).unwrap_or(false);
-                gs.has_resume = !exe_exists && (state_path.exists() || has_chunks);
+                let install_path = self.config.games.get(&game_id).and_then(|c| c.install_path.as_ref());
+                let installed = install_path
+                    .and_then(|p| irmin::game_installer::read_installed_tag(p))
+                    .is_some();
+                let partial = install_path
+                    .map(|p| {
+                        crate::state::has_partial_download(&data_dir, p, game_id.as_str())
+                    })
+                    .unwrap_or(false);
+                gs.has_resume = !installed && partial;
             }
         }
         self.download = None;
