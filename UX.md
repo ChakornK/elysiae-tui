@@ -53,7 +53,7 @@ flowchart TD
 | Not Installed | Get Game | Start download | — |
 | Resumable | Resume | Resume download | — |
 | Installed | Launch | Prepare and launch | `v` verify |
-| Update Available | Update | Start update | `p` preinstall, `a` apply |
+| Update Available | Update | Start update | `r` preinstall, `a` apply |
 | Downloading / Updating | Downloading... | No-op | `p` pause/resume, `c` cancel |
 
 ---
