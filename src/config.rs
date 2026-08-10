@@ -41,9 +41,6 @@ pub struct Config {
     /// Automatically download game updates on startup.
     #[serde(default = "default_true")]
     pub auto_update: bool,
-    /// Automatically download preinstall patches on startup.
-    #[serde(default = "default_true")]
-    pub auto_preload: bool,
 }
 
 fn default_true() -> bool {
@@ -164,7 +161,6 @@ impl Default for Config {
                 jadeite: None,
             },
             auto_update: true,
-            auto_preload: true,
         }
     }
 }
@@ -234,7 +230,6 @@ mod tests {
                 games,
                 installed_components: ComponentVersions { proton, jadeite },
                 auto_update: true,
-                auto_preload: true,
             })
     }
 
