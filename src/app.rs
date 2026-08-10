@@ -275,6 +275,13 @@ impl App {
                         if let Some(path) = gc.and_then(|c| c.install_path.as_ref()) {
                             gs.installed_tag = irmin::game_installer::read_installed_tag(path);
                         }
+                        // A finished preinstall wrote its marker on disk, so stop
+                        // offering to re-download it without waiting for a re-check.
+                        if dl.op_label == "Preinstalling..."
+                            && let Some(info) = gs.update_info.as_mut()
+                        {
+                            info.preinstall_downloaded = true;
+                        }
                     }
                 }
                 self.download = None;
