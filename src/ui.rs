@@ -541,14 +541,16 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         let has_update = status
             .and_then(|s| s.update_info.as_ref())
             .is_some_and(|i| i.update_available);
-        let has_preinstall = status
+        let preinstall = status
             .and_then(|s| s.update_info.as_ref())
-            .is_some_and(|i| i.preinstall_available);
+            .filter(|i| i.preinstall_available);
 
         let state_text = if let Some(tag) = installed {
             if has_update {
                 format!("v{} - update available", tag)
-            } else if has_preinstall {
+            } else if preinstall.is_some_and(|i| i.preinstall_downloaded) {
+                format!("v{} - preinstall downloaded", tag)
+            } else if preinstall.is_some() {
                 format!("v{} - preinstall available", tag)
             } else {
                 format!("v{}", tag)
