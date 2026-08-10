@@ -39,6 +39,14 @@ async fn handle_main(
     if app.download.is_some() {
         match key {
             KeyCode::Char('p') => {
+                let is_preinstall = app
+                    .download
+                    .as_ref()
+                    .is_some_and(|dl| dl.op_label == "Preinstalling...");
+                // Preinstall downloads are not pausable.
+                if is_preinstall {
+                    return Ok(());
+                }
                 if let Some(ref mut dl) = app.download {
                     if dl.paused {
                         dl.handle.resume();

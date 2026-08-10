@@ -1094,7 +1094,15 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 
     // Left island: keybinds
     let keys = if app.download.is_some() {
-        "[q] quit  [p] pause/resume  [c] cancel  [←/→] switch game"
+        if app
+            .download
+            .as_ref()
+            .is_some_and(|dl| dl.op_label == "Preinstalling...")
+        {
+            "[q] quit  [c] cancel  [←/→] switch game"
+        } else {
+            "[q] quit  [p] pause/resume  [c] cancel  [←/→] switch game"
+        }
     } else {
         match app.current_view {
             View::GameList => "[q] quit  [s] settings  [←/→] switch game",
