@@ -1054,6 +1054,9 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     let bg_img = app.backgrounds.get(&app.selected_game());
 
     // Right island: primary action button (always WARNING color)
+    let preinstall_active = app.download.as_ref().is_some_and(|dl| {
+        dl.game_id == app.selected_game() && dl.op_label == "Preinstalling..."
+    });
     let (btn_text, btn_key) = primary_button(app);
     let btn_label = format!("[{}] {}", btn_key, btn_text);
     let btn_content_w = UnicodeWidthStr::width(btn_label.as_str()) as u16;
@@ -1061,21 +1064,23 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     let btn_island_h = 3u16;
 
     // Disabled when a download is active and this button can't act
-    let btn_disabled = if let Some(ref dl) = app.download {
-        let game = app.selected_game();
+    let game_selected = app.selected_game();
+    let btn_disabled = if preinstall_active {
+        true
+    } else if let Some(ref dl) = app.download {
         let installed = app
             .games
-            .get(&game)
+            .get(&game_selected)
             .and_then(|s| s.installed_tag.as_ref())
             .is_some();
         let has_update = app
             .games
-            .get(&game)
+            .get(&game_selected)
             .and_then(|s| s.update_info.as_ref())
             .is_some_and(|i| i.update_available);
         // Disabled if: downloading another game (and not launchable), OR
         // waiting for components before launch (launch_on_complete)
-        (dl.game_id != game && !(installed && !has_update)) || dl.launch_on_complete
+        (dl.game_id != game_selected && !(installed && !has_update)) || dl.launch_on_complete
     } else {
         app.game_running && app.launch_log_game == Some(app.selected_game())
     };
@@ -1118,9 +1123,14 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         .and_then(|s| s.update_info.as_ref())
         .is_some_and(|i| i.preinstall_available && !i.preinstall_downloaded);
 
-    // Preinstall button (secondary, to the left of primary with 2 col gap)
-    if has_preinstall && app.download.is_none() {
-        let pre_label = "[r] Preinstall";
+    // Preinstall button (secondary, to the left of primary with 2 col gap).
+    // Stays visible during a preinstall (labeled "Preinstalling..."), disabled.
+    if (has_preinstall && app.download.is_none()) || preinstall_active {
+        let pre_label = if preinstall_active {
+            "Preinstalling..."
+        } else {
+            "[r] Preinstall"
+        };
         let pre_content_w = pre_label.len() as u16;
         let pre_island_w = pre_content_w + 4;
         let pre_rect = Rect::new(
@@ -1129,12 +1139,27 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
             pre_island_w.min(area.width),
             btn_island_h.min(area.height),
         );
+        let pre_disabled = preinstall_active;
+        let pre_bg = if pre_disabled {
+            if let Color::Rgb(r, g, b) = SECONDARY_BG {
+                Color::Rgb(
+                    ((r as u16 * 3) / 10) as u8,
+                    ((g as u16 * 3) / 10) as u8,
+                    ((b as u16 * 3) / 10) as u8,
+                )
+            } else {
+                SECONDARY_BG
+            }
+        } else {
+            SECONDARY_BG
+        };
+        let pre_fg = if pre_disabled { TEXT_MUTED } else { WARNING };
         let buf = frame.buffer_mut();
         for cy in pre_rect.y..pre_rect.bottom() {
             for cx in pre_rect.x..pre_rect.right() {
                 let cell = &mut buf[(cx, cy)];
                 cell.set_char(' ');
-                cell.set_bg(SECONDARY_BG);
+                cell.set_bg(pre_bg);
                 cell.set_fg(Color::Reset);
             }
         }
@@ -1143,8 +1168,8 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
             Paragraph::new(Line::from(Span::styled(
                 pre_label,
                 Style::default()
-                    .fg(WARNING)
-                    .bg(SECONDARY_BG)
+                    .fg(pre_fg)
+                    .bg(pre_bg)
                     .add_modifier(Modifier::BOLD),
             ))),
             pre_inner,
@@ -1194,6 +1219,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 fn primary_button(app: &App) -> (&'static str, &'static str) {
     if let Some(ref dl) = app.download
         && dl.game_id == app.selected_game()
+        && dl.op_label != "Preinstalling..."
     {
         return (dl.op_label, "p");
     }
