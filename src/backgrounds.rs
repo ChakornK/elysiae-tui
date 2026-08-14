@@ -67,6 +67,11 @@ impl Backgrounds {
         self.paths.get(&game)
     }
 
+    /// The remote filename this game's cached background was downloaded from.
+    pub fn current_name(&self, game: GameId) -> Option<&str> {
+        self.current.get(&game).map(String::as_str)
+    }
+
     /// Populates paths from already-cached files on disk. No network.
     fn load_cached(&mut self) {
         for game in GameId::ALL {
@@ -84,13 +89,12 @@ impl Backgrounds {
     }
 
     /// Fetches the game list, downloads any background whose remote filename
-    /// differs from the one currently cached, and returns the changed games.
-    pub async fn sync(&mut self, client: &reqwest::Client) -> Vec<GameId> {
+    /// differs from the one currently cached.
+    pub async fn sync(&mut self, client: &reqwest::Client) {
         let Some(games) = fetch_games(client).await else {
-            return Vec::new();
+            return;
         };
 
-        let mut changed = Vec::new();
         for entry in &games {
             let Some(game_id) = api_id_to_game(&entry.id) else { continue };
             let Some(remote_name) = filename_of(&entry.display.background.url) else { continue };
@@ -117,10 +121,8 @@ impl Backgrounds {
                 self.paths.insert(game_id, local_path);
                 self.current.insert(game_id, remote_name.clone());
                 let _ = fs::write(dir.join("bg.src"), &remote_name);
-                changed.push(game_id);
             }
         }
-        changed
     }
 }
 
@@ -223,5 +225,22 @@ mod tests {
         // Current marker matches the cached file → sync would skip (no change).
         assert!(bg.current.get(&GameId::Hk4e).is_some_and(|c| c == "44c00562.webp"));
         assert!(bg.paths.get(&GameId::Hk4e).unwrap().exists());
+    }
+
+    #[test]
+    fn source_for_remote_name_is_updated_on_download() {
+        // Simulates the disk state a stale-cache bug leaves behind: bg.webp
+        // already matches remote, bg.src updated, but an old-source cache
+        // still exists. The versioned cache key must follow bg.src.
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("hk4e");
+        std::fs::create_dir_all(&game_dir).unwrap();
+        std::fs::write(game_dir.join("bg.webp"), b"new").unwrap();
+        std::fs::write(game_dir.join("bg.src"), "new_asset.webp").unwrap();
+
+        let bg = Backgrounds::new(dir.path().to_path_buf());
+        assert_eq!(bg.current_name(GameId::Hk4e), Some("new_asset.webp"));
+        // The stale cache from the old source must not be keyed as current.
+        assert_ne!(bg.current_name(GameId::Hk4e), Some("old_asset.webp"));
     }
 }

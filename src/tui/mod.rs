@@ -82,9 +82,9 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let bg_term_size = term_size;
     tokio::spawn(async move {
         let mut backgrounds = Backgrounds::new(cache_dir);
-        let changed = backgrounds.sync(&bg_client).await;
+        backgrounds.sync(&bg_client).await;
         let encoded = tokio::task::spawn_blocking(move || {
-            encode_missing(&backgrounds, bg_term_size, &qcache_dir, &changed)
+            encode_missing(&backgrounds, bg_term_size, &qcache_dir)
         }).await.unwrap_or_default();
         let _ = bg_tx.send(encoded);
     });
@@ -352,6 +352,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Loads pre-encoded quadrant caches for the current terminal size.
+/// Cache files are keyed by source background, so a stale image from an older
+/// source is never loaded — it simply doesn't match the current source name.
 fn load_from_cache(app: &mut App, term_size: (u16, u16)) {
     let dir = quadrant_cache_dir();
     let (cols, rows) = term_size;
@@ -359,7 +361,8 @@ fn load_from_cache(app: &mut App, term_size: (u16, u16)) {
         if app.backgrounds.contains_key(&game) {
             continue;
         }
-        let path = dir.join(format!("{}_{cols}x{rows}.qcache", game.as_str()));
+        let Some(src) = read_source_marker(game) else { continue };
+        let path = dir.join(format!("{}_{cols}x{rows}_{src}.qcache", game.as_str()));
         if let Ok(mut img) = QuadrantImage::read_cache(&path) {
             img.darken();
             app.backgrounds.insert(game, img);
@@ -367,30 +370,39 @@ fn load_from_cache(app: &mut App, term_size: (u16, u16)) {
     }
 }
 
+/// Reads the remote filename marker (`bg.src`) for a game's cached background.
+fn read_source_marker(game: GameId) -> Option<String> {
+    let path = bg_cache_dir().join(game.as_str()).join("bg.src");
+    let name = std::fs::read_to_string(path).ok()?;
+    let name = name.trim();
+    if name.is_empty() { None } else { Some(name.to_owned()) }
+}
+
 /// Encodes backgrounds that aren't already cached, saves to disk.
-/// `changed` games (fresh remote source) are always re-encoded and re-thumbnailed.
+/// Quadrant cache files are versioned by source (`{game}_{w}x{h}_{src}.qcache`),
+/// so a fresh remote source always produces a fresh cache and stale ones are
+/// left behind (and swept below).
 fn encode_missing(
     backgrounds: &Backgrounds,
     term_size: (u16, u16),
     qcache_dir: &std::path::Path,
-    changed: &[GameId],
 ) -> HashMap<GameId, QuadrantImage> {
     let _ = std::fs::create_dir_all(qcache_dir);
     let (cols, rows) = term_size;
     let mut map = HashMap::new();
 
     for game in GameId::ALL {
-        let cache_path = qcache_dir.join(format!("{}_{cols}x{rows}.qcache", game.as_str()));
-        let is_changed = changed.contains(&game);
-        // Skip if cache already exists (load_from_cache handled it)
-        if cache_path.exists() && !is_changed {
+        let Some(path) = backgrounds.get(game) else { continue };
+        let Some(src) = backgrounds.current_name(game) else { continue };
+
+        let cache_path = qcache_dir.join(format!("{}_{cols}x{rows}_{src}.qcache", game.as_str()));
+        // Source-versioned cache already exists — up to date.
+        if cache_path.exists() {
             continue;
         }
 
-        let Some(path) = backgrounds.get(game) else { continue };
-
         // Prefer thumbnail if available
-        let thumb_path = path.with_file_name("bg_thumb.png");
+        let thumb_path = path.with_file_name(format!("bg_thumb_{src}.png"));
         let load_path = if thumb_path.exists() { &thumb_path } else { path };
 
         let Ok(reader) = image::ImageReader::open(load_path) else { continue };
@@ -410,12 +422,31 @@ fn encode_missing(
         map.insert(game, encoded);
     }
 
+    // Sweep stale caches: remove any `{game}_*x*.qcache` not produced from the
+    // current source. Valid versioned caches at other sizes are kept.
+    for game in GameId::ALL {
+        let Some(src) = backgrounds.current_name(game) else { continue };
+        let prefix = format!("{}_", game.as_str());
+        let suffix = format!("_{src}.qcache");
+        if let Ok(entries) = std::fs::read_dir(qcache_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name.starts_with(&prefix)
+                    && name.ends_with(".qcache")
+                    && !name.ends_with(&suffix)
+                {
+                    let _ = std::fs::remove_file(entry.path());
+                }
+            }
+        }
+    }
+
     // Also generate thumbnails for future fast loads
     for game in GameId::ALL {
-        let is_changed = changed.contains(&game);
         let Some(path) = backgrounds.get(game) else { continue };
-        let thumb_path = path.with_file_name("bg_thumb.png");
-        if thumb_path.exists() && !is_changed {
+        let Some(src) = backgrounds.current_name(game) else { continue };
+        let thumb_path = path.with_file_name(format!("bg_thumb_{src}.png"));
+        if thumb_path.exists() {
             continue;
         }
         let Ok(reader) = image::ImageReader::open(path) else { continue };
