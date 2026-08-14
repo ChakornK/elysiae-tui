@@ -4,12 +4,12 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 
-use crate::game::GameId;
 use crate::quadrant::QuadrantImage;
 
 /// Tracks an active ripple fade between two game backgrounds.
 pub struct BgTransition {
-    pub from_game: GameId,
+    /// Snapshot of the background being faded out.
+    pub from: QuadrantImage,
     started: Instant,
     duration: Duration,
 }
@@ -17,9 +17,9 @@ pub struct BgTransition {
 impl BgTransition {
     const DEFAULT_DURATION: Duration = Duration::from_millis(300);
 
-    pub fn new(from_game: GameId) -> Self {
+    pub fn new(from: QuadrantImage) -> Self {
         Self {
-            from_game,
+            from,
             started: Instant::now(),
             duration: Self::DEFAULT_DURATION,
         }

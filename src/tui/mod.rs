@@ -82,9 +82,9 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let bg_term_size = term_size;
     tokio::spawn(async move {
         let mut backgrounds = Backgrounds::new(cache_dir);
-        backgrounds.sync(&bg_client).await;
+        let changed = backgrounds.sync(&bg_client).await;
         let encoded = tokio::task::spawn_blocking(move || {
-            encode_missing(&backgrounds, bg_term_size, &qcache_dir)
+            encode_missing(&backgrounds, bg_term_size, &qcache_dir, &changed)
         }).await.unwrap_or_default();
         let _ = bg_tx.send(encoded);
     });
@@ -135,7 +135,14 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         // Receive lazily-encoded backgrounds when ready
         if let Ok(new_bgs) = bg_rx.try_recv() {
             for (game, img) in new_bgs {
-                app.backgrounds.entry(game).or_insert(img);
+                // If the updated background is the one currently on screen,
+                // crossfade from the old image; otherwise just swap it in.
+                if app.selected_game() == game
+                    && let Some(old) = app.backgrounds.get(&game)
+                {
+                    app.bg_transition = Some(crate::transition::BgTransition::new(old.clone()));
+                }
+                app.backgrounds.insert(game, img);
             }
             // Replace with a dummy channel
             let (_tx, rx) = oneshot::channel();
@@ -361,10 +368,12 @@ fn load_from_cache(app: &mut App, term_size: (u16, u16)) {
 }
 
 /// Encodes backgrounds that aren't already cached, saves to disk.
+/// `changed` games (fresh remote source) are always re-encoded and re-thumbnailed.
 fn encode_missing(
     backgrounds: &Backgrounds,
     term_size: (u16, u16),
     qcache_dir: &std::path::Path,
+    changed: &[GameId],
 ) -> HashMap<GameId, QuadrantImage> {
     let _ = std::fs::create_dir_all(qcache_dir);
     let (cols, rows) = term_size;
@@ -372,8 +381,9 @@ fn encode_missing(
 
     for game in GameId::ALL {
         let cache_path = qcache_dir.join(format!("{}_{cols}x{rows}.qcache", game.as_str()));
+        let is_changed = changed.contains(&game);
         // Skip if cache already exists (load_from_cache handled it)
-        if cache_path.exists() {
+        if cache_path.exists() && !is_changed {
             continue;
         }
 
@@ -402,9 +412,10 @@ fn encode_missing(
 
     // Also generate thumbnails for future fast loads
     for game in GameId::ALL {
+        let is_changed = changed.contains(&game);
         let Some(path) = backgrounds.get(game) else { continue };
         let thumb_path = path.with_file_name("bg_thumb.png");
-        if thumb_path.exists() {
+        if thumb_path.exists() && !is_changed {
             continue;
         }
         let Ok(reader) = image::ImageReader::open(path) else { continue };

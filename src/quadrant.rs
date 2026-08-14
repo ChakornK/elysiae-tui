@@ -14,12 +14,14 @@ const QUADRANT_CHARS: [char; 16] = [
 ];
 
 /// Pre-rendered quadrant image ready for direct buffer rendering.
+#[derive(Clone)]
 pub struct QuadrantImage {
     pub width: u16,
     pub height: u16,
     pub cells: Vec<QuadrantCell>,
 }
 
+#[derive(Clone)]
 pub struct QuadrantCell {
     pub ch: char,
     pub fg: Color,

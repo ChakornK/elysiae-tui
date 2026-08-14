@@ -47,6 +47,8 @@ struct BackgroundInfo {
 pub struct Backgrounds {
     cache_dir: PathBuf,
     paths: HashMap<GameId, PathBuf>,
+    /// Remote filename currently cached per game, for change detection.
+    current: HashMap<GameId, String>,
 }
 
 impl Backgrounds {
@@ -54,6 +56,7 @@ impl Backgrounds {
         let mut bg = Self {
             cache_dir,
             paths: HashMap::new(),
+            current: HashMap::new(),
         };
         bg.load_cached();
         bg
@@ -67,25 +70,38 @@ impl Backgrounds {
     /// Populates paths from already-cached files on disk. No network.
     fn load_cached(&mut self) {
         for game in GameId::ALL {
-            let local_path = self.cache_dir.join(game.as_str()).join("bg.webp");
+            let dir = self.cache_dir.join(game.as_str());
+            let local_path = dir.join("bg.webp");
             if local_path.exists() {
+                if let Ok(name) = fs::read_to_string(dir.join("bg.src"))
+                    && !name.trim().is_empty()
+                {
+                    self.current.insert(game, name.trim().to_owned());
+                }
                 self.paths.insert(game, local_path);
             }
         }
     }
 
-    /// Fetches game list from the API and downloads missing background images.
-    pub async fn sync(&mut self, client: &reqwest::Client) {
-        let games = match fetch_games(client).await {
-            Some(g) => g,
-            None => return,
+    /// Fetches the game list, downloads any background whose remote filename
+    /// differs from the one currently cached, and returns the changed games.
+    pub async fn sync(&mut self, client: &reqwest::Client) -> Vec<GameId> {
+        let Some(games) = fetch_games(client).await else {
+            return Vec::new();
         };
 
+        let mut changed = Vec::new();
         for entry in &games {
             let Some(game_id) = api_id_to_game(&entry.id) else { continue };
-            let local_path = self.cache_dir.join(game_id.as_str()).join("bg.webp");
+            let Some(remote_name) = filename_of(&entry.display.background.url) else { continue };
 
-            if local_path.exists() {
+            let dir = self.cache_dir.join(game_id.as_str());
+            let local_path = dir.join("bg.webp");
+
+            // Already have this exact remote background — nothing to do.
+            if self.current.get(&game_id).is_some_and(|c| c == &remote_name)
+                && local_path.exists()
+            {
                 self.paths.insert(game_id, local_path);
                 continue;
             }
@@ -99,9 +115,19 @@ impl Backgrounds {
                 && fs::write(&local_path, &bytes).is_ok()
             {
                 self.paths.insert(game_id, local_path);
+                self.current.insert(game_id, remote_name.clone());
+                let _ = fs::write(dir.join("bg.src"), &remote_name);
+                changed.push(game_id);
             }
         }
+        changed
     }
+}
+
+/// Extracts the filename from a remote image URL, e.g. `.../44c0....webp` -> `44c0....webp`.
+fn filename_of(url: &str) -> Option<String> {
+    let path = url.split('?').next()?;
+    path.rsplit('/').next().filter(|n| !n.is_empty()).map(str::to_owned)
 }
 
 /// Maps the API game id to our internal GameId.
