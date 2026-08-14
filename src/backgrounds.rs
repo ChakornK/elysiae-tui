@@ -183,16 +183,16 @@ mod tests {
     #[test]
     fn filename_of_extracts_last_path_segment() {
         assert_eq!(
-            filename_of("https://fastcdn.hoyoverse.com/static-resource-v2/2026/07/24/44c00562.webp")
+            filename_of("https://cdn.example.com/static-resource-v2/2026/07/24/44c00562.webp")
                 .as_deref(),
             Some("44c00562.webp")
         );
         assert_eq!(
-            filename_of("https://host/path/img.webp?x-oss-process=resize").as_deref(),
+            filename_of("https://host.example/path/img.webp?x-oss-process=resize").as_deref(),
             Some("img.webp")
         );
         assert_eq!(filename_of(""), None);
-        assert_eq!(filename_of("https://host/"), None);
+        assert_eq!(filename_of("https://host.example/"), None);
     }
 
     #[test]
