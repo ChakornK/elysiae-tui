@@ -47,6 +47,8 @@ struct BackgroundInfo {
 pub struct Backgrounds {
     cache_dir: PathBuf,
     paths: HashMap<GameId, PathBuf>,
+    /// Remote filename currently cached per game, for change detection.
+    current: HashMap<GameId, String>,
 }
 
 impl Backgrounds {
@@ -54,6 +56,7 @@ impl Backgrounds {
         let mut bg = Self {
             cache_dir,
             paths: HashMap::new(),
+            current: HashMap::new(),
         };
         bg.load_cached();
         bg
@@ -64,28 +67,45 @@ impl Backgrounds {
         self.paths.get(&game)
     }
 
+    /// The remote filename this game's cached background was downloaded from.
+    pub fn current_name(&self, game: GameId) -> Option<&str> {
+        self.current.get(&game).map(String::as_str)
+    }
+
     /// Populates paths from already-cached files on disk. No network.
     fn load_cached(&mut self) {
         for game in GameId::ALL {
-            let local_path = self.cache_dir.join(game.as_str()).join("bg.webp");
+            let dir = self.cache_dir.join(game.as_str());
+            let local_path = dir.join("bg.webp");
             if local_path.exists() {
+                if let Ok(name) = fs::read_to_string(dir.join("bg.src"))
+                    && !name.trim().is_empty()
+                {
+                    self.current.insert(game, name.trim().to_owned());
+                }
                 self.paths.insert(game, local_path);
             }
         }
     }
 
-    /// Fetches game list from the API and downloads missing background images.
+    /// Fetches the game list, downloads any background whose remote filename
+    /// differs from the one currently cached.
     pub async fn sync(&mut self, client: &reqwest::Client) {
-        let games = match fetch_games(client).await {
-            Some(g) => g,
-            None => return,
+        let Some(games) = fetch_games(client).await else {
+            return;
         };
 
         for entry in &games {
             let Some(game_id) = api_id_to_game(&entry.id) else { continue };
-            let local_path = self.cache_dir.join(game_id.as_str()).join("bg.webp");
+            let Some(remote_name) = filename_of(&entry.display.background.url) else { continue };
 
-            if local_path.exists() {
+            let dir = self.cache_dir.join(game_id.as_str());
+            let local_path = dir.join("bg.webp");
+
+            // Already have this exact remote background — nothing to do.
+            if self.current.get(&game_id).is_some_and(|c| c == &remote_name)
+                && local_path.exists()
+            {
                 self.paths.insert(game_id, local_path);
                 continue;
             }
@@ -99,9 +119,17 @@ impl Backgrounds {
                 && fs::write(&local_path, &bytes).is_ok()
             {
                 self.paths.insert(game_id, local_path);
+                self.current.insert(game_id, remote_name.clone());
+                let _ = fs::write(dir.join("bg.src"), &remote_name);
             }
         }
     }
+}
+
+/// Extracts the filename from a remote image URL, e.g. `.../44c0....webp` -> `44c0....webp`.
+fn filename_of(url: &str) -> Option<String> {
+    let path = url.split('?').next()?;
+    path.rsplit('/').next().filter(|n| !n.is_empty()).map(str::to_owned)
 }
 
 /// Maps the API game id to our internal GameId.
@@ -148,4 +176,71 @@ async fn download_file(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
         buf.extend_from_slice(&chunk);
     }
     Some(buf)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filename_of_extracts_last_path_segment() {
+        assert_eq!(
+            filename_of("https://cdn.example.com/static-resource-v2/2026/07/24/44c00562.webp")
+                .as_deref(),
+            Some("44c00562.webp")
+        );
+        assert_eq!(
+            filename_of("https://host.example/path/img.webp?x-oss-process=resize").as_deref(),
+            Some("img.webp")
+        );
+        assert_eq!(filename_of(""), None);
+        assert_eq!(filename_of("https://host.example/"), None);
+    }
+
+    #[test]
+    fn load_cached_reads_remote_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("hk4e");
+        std::fs::create_dir_all(&game_dir).unwrap();
+        std::fs::write(game_dir.join("bg.webp"), b"x").unwrap();
+        std::fs::write(game_dir.join("bg.src"), "44c00562.webp").unwrap();
+
+        let bg = Backgrounds::new(dir.path().to_path_buf());
+        assert!(bg.paths.contains_key(&GameId::Hk4e));
+        assert_eq!(
+            bg.current.get(&GameId::Hk4e).map(String::as_str),
+            Some("44c00562.webp")
+        );
+    }
+
+    #[test]
+    fn same_remote_name_skips_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("hk4e");
+        std::fs::create_dir_all(&game_dir).unwrap();
+        std::fs::write(game_dir.join("bg.webp"), b"x").unwrap();
+        std::fs::write(game_dir.join("bg.src"), "44c00562.webp").unwrap();
+
+        let bg = Backgrounds::new(dir.path().to_path_buf());
+        // Current marker matches the cached file → sync would skip (no change).
+        assert!(bg.current.get(&GameId::Hk4e).is_some_and(|c| c == "44c00562.webp"));
+        assert!(bg.paths.get(&GameId::Hk4e).unwrap().exists());
+    }
+
+    #[test]
+    fn source_for_remote_name_is_updated_on_download() {
+        // Simulates the disk state a stale-cache bug leaves behind: bg.webp
+        // already matches remote, bg.src updated, but an old-source cache
+        // still exists. The versioned cache key must follow bg.src.
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("hk4e");
+        std::fs::create_dir_all(&game_dir).unwrap();
+        std::fs::write(game_dir.join("bg.webp"), b"new").unwrap();
+        std::fs::write(game_dir.join("bg.src"), "new_asset.webp").unwrap();
+
+        let bg = Backgrounds::new(dir.path().to_path_buf());
+        assert_eq!(bg.current_name(GameId::Hk4e), Some("new_asset.webp"));
+        // The stale cache from the old source must not be keyed as current.
+        assert_ne!(bg.current_name(GameId::Hk4e), Some("old_asset.webp"));
+    }
 }

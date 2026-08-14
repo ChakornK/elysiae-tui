@@ -223,6 +223,7 @@ fn start_bg_transition(app: &mut App, old_game: crate::game::GameId) {
         && app.backgrounds.contains_key(&old_game)
         && app.backgrounds.contains_key(&new_game)
     {
-        app.bg_transition = Some(BgTransition::new(old_game));
+        let from = app.backgrounds.get(&old_game).unwrap().clone();
+        app.bg_transition = Some(BgTransition::new(from));
     }
 }

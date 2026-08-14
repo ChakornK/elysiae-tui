@@ -160,23 +160,18 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     // Render background image (with ripple transition if active)
     if let Some(ref transition) = app.bg_transition {
-        if let (Some(from_bg), Some(to_bg)) = (
-            app.backgrounds.get(&transition.from_game),
-            app.backgrounds.get(&app.selected_game()),
-        ) {
-            if from_bg.width == to_bg.width && from_bg.height == to_bg.height {
+        if let Some(to_bg) = app.backgrounds.get(&app.selected_game()) {
+            if transition.from.width == to_bg.width && transition.from.height == to_bg.height {
                 render_ripple_transition(
-                    from_bg,
+                    &transition.from,
                     to_bg,
                     transition.progress(),
                     frame.area(),
                     frame.buffer_mut(),
                 );
-            } else if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
-                frame.render_widget(bg, frame.area());
+            } else {
+                frame.render_widget(to_bg, frame.area());
             }
-        } else if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
-            frame.render_widget(bg, frame.area());
         }
     } else if let Some(bg) = app.backgrounds.get(&app.selected_game()) {
         frame.render_widget(bg, frame.area());

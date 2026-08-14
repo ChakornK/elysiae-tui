@@ -135,7 +135,15 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         // Receive lazily-encoded backgrounds when ready
         if let Ok(new_bgs) = bg_rx.try_recv() {
             for (game, img) in new_bgs {
-                app.backgrounds.entry(game).or_insert(img);
+                // If the updated background is the one currently on screen,
+                // crossfade from the old image (or fade in from dark ) to it.
+                if app.selected_game() == game {
+                    let from = app.backgrounds.get(&game).cloned().unwrap_or_else(|| {
+                        QuadrantImage::dark_blank(img.width, img.height)
+                    });
+                    app.bg_transition = Some(crate::transition::BgTransition::new(from));
+                }
+                app.backgrounds.insert(game, img);
             }
             // Replace with a dummy channel
             let (_tx, rx) = oneshot::channel();
@@ -345,6 +353,8 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Loads pre-encoded quadrant caches for the current terminal size.
+/// Cache files are keyed by source background, so a stale image from an older
+/// source is never loaded — it simply doesn't match the current source name.
 fn load_from_cache(app: &mut App, term_size: (u16, u16)) {
     let dir = quadrant_cache_dir();
     let (cols, rows) = term_size;
@@ -352,7 +362,8 @@ fn load_from_cache(app: &mut App, term_size: (u16, u16)) {
         if app.backgrounds.contains_key(&game) {
             continue;
         }
-        let path = dir.join(format!("{}_{cols}x{rows}.qcache", game.as_str()));
+        let Some(src) = read_source_marker(game) else { continue };
+        let path = dir.join(format!("{}_{cols}x{rows}_{src}.qcache", game.as_str()));
         if let Ok(mut img) = QuadrantImage::read_cache(&path) {
             img.darken();
             app.backgrounds.insert(game, img);
@@ -360,7 +371,18 @@ fn load_from_cache(app: &mut App, term_size: (u16, u16)) {
     }
 }
 
+/// Reads the remote filename marker (`bg.src`) for a game's cached background.
+fn read_source_marker(game: GameId) -> Option<String> {
+    let path = bg_cache_dir().join(game.as_str()).join("bg.src");
+    let name = std::fs::read_to_string(path).ok()?;
+    let name = name.trim();
+    if name.is_empty() { None } else { Some(name.to_owned()) }
+}
+
 /// Encodes backgrounds that aren't already cached, saves to disk.
+/// Quadrant cache files are versioned by source (`{game}_{w}x{h}_{src}.qcache`),
+/// so a fresh remote source always produces a fresh cache and stale ones from
+/// an older source are never loaded.
 fn encode_missing(
     backgrounds: &Backgrounds,
     term_size: (u16, u16),
@@ -368,52 +390,39 @@ fn encode_missing(
 ) -> HashMap<GameId, QuadrantImage> {
     let _ = std::fs::create_dir_all(qcache_dir);
     let (cols, rows) = term_size;
-    let mut map = HashMap::new();
+    let grid_w = (cols as u32) * 2;
+    let grid_h = (rows as u32) * 2;
 
-    for game in GameId::ALL {
-        let cache_path = qcache_dir.join(format!("{}_{cols}x{rows}.qcache", game.as_str()));
-        // Skip if cache already exists (load_from_cache handled it)
-        if cache_path.exists() {
-            continue;
-        }
+    // Encode each game on its own thread — the webp decode dominates the cost,
+    // so running them in parallel makes wall-clock time ~one game instead of all.
+    let handles: Vec<_> = GameId::ALL
+        .iter()
+        .filter_map(|&game| {
+            let src = backgrounds.current_name(game)?;
+            let path = backgrounds.get(game)?;
+            let cache_path =
+                qcache_dir.join(format!("{}_{cols}x{rows}_{src}.qcache", game.as_str()));
+            if cache_path.exists() {
+                return None;
+            }
+            let path = path.clone();
+            Some(std::thread::spawn(move || -> Option<(GameId, QuadrantImage)> {
+                let img = image::ImageReader::open(&path).ok()?.decode().ok()?;
+                let resized =
+                    img.resize_exact(grid_w, grid_h, image::imageops::FilterType::Triangle);
+                let rgb = resized.to_rgb8();
+                let mut encoded = QuadrantImage::encode(&rgb, cols, rows);
+                let _ = encoded.write_cache(&cache_path);
+                encoded.darken();
+                Some((game, encoded))
+            }))
+        })
+        .collect();
 
-        let Some(path) = backgrounds.get(game) else { continue };
-
-        // Prefer thumbnail if available
-        let thumb_path = path.with_file_name("bg_thumb.png");
-        let load_path = if thumb_path.exists() { &thumb_path } else { path };
-
-        let Ok(reader) = image::ImageReader::open(load_path) else { continue };
-        let Ok(img) = reader.decode() else { continue };
-
-        // Resize source to exactly fit the quadrant pixel grid.
-        // No aspect correction — source images are landscape (16:9) and terminals
-        // are visually similar. resize_exact avoids cropping/zooming artifacts.
-        let grid_w = (cols as u32) * 2;
-        let grid_h = (rows as u32) * 2;
-        let resized = img.resize_exact(grid_w, grid_h, image::imageops::FilterType::Lanczos3);
-        let rgb = resized.to_rgb8();
-
-        let mut encoded = QuadrantImage::encode(&rgb, cols, rows);
-        let _ = encoded.write_cache(&cache_path);
-        encoded.darken();
-        map.insert(game, encoded);
-    }
-
-    // Also generate thumbnails for future fast loads
-    for game in GameId::ALL {
-        let Some(path) = backgrounds.get(game) else { continue };
-        let thumb_path = path.with_file_name("bg_thumb.png");
-        if thumb_path.exists() {
-            continue;
-        }
-        let Ok(reader) = image::ImageReader::open(path) else { continue };
-        let Ok(img) = reader.decode() else { continue };
-        let thumb = img.resize_to_fill(480, 270, image::imageops::FilterType::Lanczos3);
-        let _ = thumb.save(&thumb_path);
-    }
-
-    map
+    handles
+        .into_iter()
+        .filter_map(|h| h.join().ok().flatten())
+        .collect()
 }
 
 fn bg_cache_dir() -> std::path::PathBuf {
