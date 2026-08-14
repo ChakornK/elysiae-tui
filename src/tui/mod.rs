@@ -381,8 +381,8 @@ fn read_source_marker(game: GameId) -> Option<String> {
 
 /// Encodes backgrounds that aren't already cached, saves to disk.
 /// Quadrant cache files are versioned by source (`{game}_{w}x{h}_{src}.qcache`),
-/// so a fresh remote source always produces a fresh cache and stale ones are
-/// left behind (and swept below).
+/// so a fresh remote source always produces a fresh cache and stale ones from
+/// an older source are never loaded.
 fn encode_missing(
     backgrounds: &Backgrounds,
     term_size: (u16, u16),
@@ -390,70 +390,39 @@ fn encode_missing(
 ) -> HashMap<GameId, QuadrantImage> {
     let _ = std::fs::create_dir_all(qcache_dir);
     let (cols, rows) = term_size;
-    let mut map = HashMap::new();
+    let grid_w = (cols as u32) * 2;
+    let grid_h = (rows as u32) * 2;
 
-    for game in GameId::ALL {
-        let Some(path) = backgrounds.get(game) else { continue };
-        let Some(src) = backgrounds.current_name(game) else { continue };
-
-        let cache_path = qcache_dir.join(format!("{}_{cols}x{rows}_{src}.qcache", game.as_str()));
-        // Source-versioned cache already exists — up to date.
-        if cache_path.exists() {
-            continue;
-        }
-
-        let thumb_path = path.with_file_name(format!("bg_thumb_{src}.png"));
-
-        // Decode a small source (480x270) instead of the full ~4MB webp. If a
-        // thumbnail already exists from a previous run, use it directly; else
-        // generate it once from the webp. This keeps the expensive full-size
-        // decode + resize off the display path on every launch.
-        let img = if thumb_path.exists() {
-            let Ok(reader) = image::ImageReader::open(&thumb_path) else { continue };
-            let Ok(img) = reader.decode() else { continue };
-            img
-        } else {
-            let Ok(reader) = image::ImageReader::open(path) else { continue };
-            let Ok(img) = reader.decode() else { continue };
-            let thumb = img.resize_to_fill(480, 270, image::imageops::FilterType::Triangle);
-            let _ = thumb.save(&thumb_path);
-            thumb
-        };
-
-        // Resize thumbnail to exactly fit the quadrant pixel grid.
-        // No aspect correction — source images are landscape (16:9) and terminals
-        // are visually similar. resize_exact avoids cropping/zooming artifacts.
-        let grid_w = (cols as u32) * 2;
-        let grid_h = (rows as u32) * 2;
-        let resized = img.resize_exact(grid_w, grid_h, image::imageops::FilterType::Triangle);
-        let rgb = resized.to_rgb8();
-
-        let mut encoded = QuadrantImage::encode(&rgb, cols, rows);
-        let _ = encoded.write_cache(&cache_path);
-        encoded.darken();
-        map.insert(game, encoded);
-    }
-
-    // Sweep stale caches: remove any `{game}_*x*.qcache` not produced from the
-    // current source. Valid versioned caches at other sizes are kept.
-    for game in GameId::ALL {
-        let Some(src) = backgrounds.current_name(game) else { continue };
-        let prefix = format!("{}_", game.as_str());
-        let suffix = format!("_{src}.qcache");
-        if let Ok(entries) = std::fs::read_dir(qcache_dir) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with(&prefix)
-                    && name.ends_with(".qcache")
-                    && !name.ends_with(&suffix)
-                {
-                    let _ = std::fs::remove_file(entry.path());
-                }
+    // Encode each game on its own thread — the webp decode dominates the cost,
+    // so running them in parallel makes wall-clock time ~one game instead of all.
+    let handles: Vec<_> = GameId::ALL
+        .iter()
+        .filter_map(|&game| {
+            let src = backgrounds.current_name(game)?;
+            let path = backgrounds.get(game)?;
+            let cache_path =
+                qcache_dir.join(format!("{}_{cols}x{rows}_{src}.qcache", game.as_str()));
+            if cache_path.exists() {
+                return None;
             }
-        }
-    }
+            let path = path.clone();
+            Some(std::thread::spawn(move || -> Option<(GameId, QuadrantImage)> {
+                let img = image::ImageReader::open(&path).ok()?.decode().ok()?;
+                let resized =
+                    img.resize_exact(grid_w, grid_h, image::imageops::FilterType::Triangle);
+                let rgb = resized.to_rgb8();
+                let mut encoded = QuadrantImage::encode(&rgb, cols, rows);
+                let _ = encoded.write_cache(&cache_path);
+                encoded.darken();
+                Some((game, encoded))
+            }))
+        })
+        .collect();
 
-    map
+    handles
+        .into_iter()
+        .filter_map(|h| h.join().ok().flatten())
+        .collect()
 }
 
 fn bg_cache_dir() -> std::path::PathBuf {
