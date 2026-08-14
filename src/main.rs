@@ -20,6 +20,7 @@ mod state;
 mod transition;
 mod tui;
 mod ui;
+mod webp_fast;
 
 use clap::Parser;
 use cli::Cli;
