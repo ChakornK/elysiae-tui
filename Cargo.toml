@@ -23,6 +23,7 @@ tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 md-5 = "0.10"
 rustc-hash = "2"
+libwebp-sys = "0.14.4"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"
