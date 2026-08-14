@@ -175,3 +175,53 @@ async fn download_file(client: &reqwest::Client, url: &str) -> Option<Vec<u8>> {
     }
     Some(buf)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn filename_of_extracts_last_path_segment() {
+        assert_eq!(
+            filename_of("https://fastcdn.hoyoverse.com/static-resource-v2/2026/07/24/44c00562.webp")
+                .as_deref(),
+            Some("44c00562.webp")
+        );
+        assert_eq!(
+            filename_of("https://host/path/img.webp?x-oss-process=resize").as_deref(),
+            Some("img.webp")
+        );
+        assert_eq!(filename_of(""), None);
+        assert_eq!(filename_of("https://host/"), None);
+    }
+
+    #[test]
+    fn load_cached_reads_remote_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("hk4e");
+        std::fs::create_dir_all(&game_dir).unwrap();
+        std::fs::write(game_dir.join("bg.webp"), b"x").unwrap();
+        std::fs::write(game_dir.join("bg.src"), "44c00562.webp").unwrap();
+
+        let bg = Backgrounds::new(dir.path().to_path_buf());
+        assert!(bg.paths.contains_key(&GameId::Hk4e));
+        assert_eq!(
+            bg.current.get(&GameId::Hk4e).map(String::as_str),
+            Some("44c00562.webp")
+        );
+    }
+
+    #[test]
+    fn same_remote_name_skips_change() {
+        let dir = tempfile::tempdir().unwrap();
+        let game_dir = dir.path().join("hk4e");
+        std::fs::create_dir_all(&game_dir).unwrap();
+        std::fs::write(game_dir.join("bg.webp"), b"x").unwrap();
+        std::fs::write(game_dir.join("bg.src"), "44c00562.webp").unwrap();
+
+        let bg = Backgrounds::new(dir.path().to_path_buf());
+        // Current marker matches the cached file → sync would skip (no change).
+        assert!(bg.current.get(&GameId::Hk4e).is_some_and(|c| c == "44c00562.webp"));
+        assert!(bg.paths.get(&GameId::Hk4e).unwrap().exists());
+    }
+}
