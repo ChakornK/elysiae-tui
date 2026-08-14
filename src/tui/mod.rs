@@ -136,11 +136,12 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         if let Ok(new_bgs) = bg_rx.try_recv() {
             for (game, img) in new_bgs {
                 // If the updated background is the one currently on screen,
-                // crossfade from the old image; otherwise just swap it in.
-                if app.selected_game() == game
-                    && let Some(old) = app.backgrounds.get(&game)
-                {
-                    app.bg_transition = Some(crate::transition::BgTransition::new(old.clone()));
+                // crossfade from the old image (or fade in from dark ) to it.
+                if app.selected_game() == game {
+                    let from = app.backgrounds.get(&game).cloned().unwrap_or_else(|| {
+                        QuadrantImage::dark_blank(img.width, img.height)
+                    });
+                    app.bg_transition = Some(crate::transition::BgTransition::new(from));
                 }
                 app.backgrounds.insert(game, img);
             }
@@ -401,19 +402,30 @@ fn encode_missing(
             continue;
         }
 
-        // Prefer thumbnail if available
         let thumb_path = path.with_file_name(format!("bg_thumb_{src}.png"));
-        let load_path = if thumb_path.exists() { &thumb_path } else { path };
 
-        let Ok(reader) = image::ImageReader::open(load_path) else { continue };
-        let Ok(img) = reader.decode() else { continue };
+        // Decode a small source (480x270) instead of the full ~4MB webp. If a
+        // thumbnail already exists from a previous run, use it directly; else
+        // generate it once from the webp. This keeps the expensive full-size
+        // decode + resize off the display path on every launch.
+        let img = if thumb_path.exists() {
+            let Ok(reader) = image::ImageReader::open(&thumb_path) else { continue };
+            let Ok(img) = reader.decode() else { continue };
+            img
+        } else {
+            let Ok(reader) = image::ImageReader::open(path) else { continue };
+            let Ok(img) = reader.decode() else { continue };
+            let thumb = img.resize_to_fill(480, 270, image::imageops::FilterType::Triangle);
+            let _ = thumb.save(&thumb_path);
+            thumb
+        };
 
-        // Resize source to exactly fit the quadrant pixel grid.
+        // Resize thumbnail to exactly fit the quadrant pixel grid.
         // No aspect correction — source images are landscape (16:9) and terminals
         // are visually similar. resize_exact avoids cropping/zooming artifacts.
         let grid_w = (cols as u32) * 2;
         let grid_h = (rows as u32) * 2;
-        let resized = img.resize_exact(grid_w, grid_h, image::imageops::FilterType::Lanczos3);
+        let resized = img.resize_exact(grid_w, grid_h, image::imageops::FilterType::Triangle);
         let rgb = resized.to_rgb8();
 
         let mut encoded = QuadrantImage::encode(&rgb, cols, rows);
@@ -439,20 +451,6 @@ fn encode_missing(
                 }
             }
         }
-    }
-
-    // Also generate thumbnails for future fast loads
-    for game in GameId::ALL {
-        let Some(path) = backgrounds.get(game) else { continue };
-        let Some(src) = backgrounds.current_name(game) else { continue };
-        let thumb_path = path.with_file_name(format!("bg_thumb_{src}.png"));
-        if thumb_path.exists() {
-            continue;
-        }
-        let Ok(reader) = image::ImageReader::open(path) else { continue };
-        let Ok(img) = reader.decode() else { continue };
-        let thumb = img.resize_to_fill(480, 270, image::imageops::FilterType::Lanczos3);
-        let _ = thumb.save(&thumb_path);
     }
 
     map

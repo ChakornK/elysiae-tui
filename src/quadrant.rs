@@ -29,6 +29,20 @@ pub struct QuadrantCell {
 }
 
 impl QuadrantImage {
+    /// A uniformly dark image of the given dimensions, for starting fade-ins.
+    pub fn dark_blank(width: u16, height: u16) -> Self {
+        let cell = QuadrantCell {
+            ch: ' ',
+            fg: Color::Rgb(0, 0, 0),
+            bg: Color::Rgb(0, 0, 0),
+        };
+        Self {
+            width,
+            height,
+            cells: vec![cell; (width as usize) * (height as usize)],
+        }
+    }
+
     /// Encodes an RGB image into quadrant blocks.
     /// Input image must be (cell_width * 2) x (cell_height * 2) pixels.
     pub fn encode(img: &RgbImage, cell_width: u16, cell_height: u16) -> Self {
