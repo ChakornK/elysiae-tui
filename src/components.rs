@@ -149,22 +149,10 @@ impl ComponentManager {
         if !module.hash.is_empty() {
             let expected_hash = module.hash.clone();
             let archive_for_hash = archive_path.clone();
-            let actual_hash = tokio::task::spawn_blocking(move || {
-                use md5::{Md5, Digest};
-                use std::io::Read;
-                let mut file = std::fs::File::open(&archive_for_hash)?;
-                let mut hasher = Md5::new();
-                let mut buf = [0u8; 64 * 1024];
-                loop {
-                    let n = file.read(&mut buf)?;
-                    if n == 0 { break; }
-                    hasher.update(&buf[..n]);
-                }
-                Ok::<String, std::io::Error>(format!("{:x}", hasher.finalize()))
-            })
-            .await
-            .map_err(|e| ComponentError::Other(format!("hash task failed: {e}")))?
-            .map_err(ComponentError::Io)?;
+            let actual_hash = tokio::task::spawn_blocking(move || sha256_file(&archive_for_hash))
+                .await
+                .map_err(|e| ComponentError::Other(format!("hash task failed: {e}")))?
+                .map_err(ComponentError::Io)?;
 
             if actual_hash != expected_hash {
                 let _ = std::fs::remove_file(&archive_path);
@@ -324,6 +312,22 @@ pub fn jadeite_available(data_dir: &std::path::Path) -> bool {
             .unwrap_or(false)
 }
 
+/// Computes the SHA-256 hex digest of a file. The Aedes API publishes
+/// SHA-256 hashes, so integrity is verified with SHA-256.
+fn sha256_file(path: &std::path::Path) -> std::io::Result<String> {
+    use sha2::{Sha256, Digest};
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 { break; }
+        hasher.update(&buf[..n]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
 fn extract_tar_gz(
     archive: &std::path::Path,
     dest: &std::path::Path,
@@ -455,6 +459,18 @@ mod tests {
         let meta: Vec<ModuleData> = vec![];
         assert!(select_module("proton", &meta).is_err());
         assert!(select_module("jadeite", &meta).is_err());
+    }
+
+    #[test]
+    fn sha256_file_matches_known_digest() {
+        let tmp = TempDir::new().unwrap();
+        let f = tmp.path().join("hello.txt");
+        fs::write(&f, b"hello").unwrap();
+        // sha256("hello"); differs from md5("hello") = 5d41402abc4b2a76b9719d911017c592
+        assert_eq!(
+            sha256_file(&f).unwrap(),
+            "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
+        );
     }
 
     #[test]
