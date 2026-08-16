@@ -44,26 +44,21 @@ pub enum ComponentError {
 
 const AEDES_BASE: &str = "https://aedes.elysiae.app/components";
 
-/// Returns the correct download URL for the current architecture.
-/// The Aedes API may serve architecture-specific URLs, or we override
-/// to get the correct GE-Proton build for x86_64 vs aarch64.
-fn resolve_download_url(module: &ModuleData, name: &str) -> String {
-    let arch = std::env::consts::ARCH;
-    // If the URL already matches our arch, use it directly
-    if arch == "aarch64" && module.download_url.contains("aarch64") {
-        return module.download_url.clone();
-    }
-    if arch == "x86_64" && !module.download_url.contains("aarch64") {
-        return module.download_url.clone();
-    }
-    // Override: swap architecture in the GitHub release URL
-    if name == "proton" && arch == "x86_64" && module.download_url.contains("aarch64") {
-        return module.download_url.replace("-aarch64.tar.gz", ".tar.gz");
-    }
-    if name == "proton" && arch == "aarch64" && !module.download_url.contains("aarch64") {
-        return module.download_url.replace(".tar.gz", "-aarch64.tar.gz");
-    }
-    module.download_url.clone()
+/// Selects the module entry matching the host architecture.
+/// The Aedes component API lists one entry per build; Proton ships separate
+/// x86_64 and aarch64 assets (aarch64 URLs contain "aarch64", x86_64 do not),
+/// so we pick the entry matching the host rather than rewriting URLs. Other
+/// components (e.g. Jadeite) ship a single universal build with one entry.
+fn select_module<'a>(name: &str, meta: &'a [ModuleData]) -> Result<&'a ModuleData, ComponentError> {
+    let pick = if name == "proton" {
+        let want_aarch64 = std::env::consts::ARCH == "aarch64";
+        meta.iter().find(|m| m.download_url.contains("aarch64") == want_aarch64)
+    } else {
+        meta.first()
+    };
+    pick.ok_or_else(|| {
+        ComponentError::Other(format!("no {} build available for {}", name, std::env::consts::ARCH))
+    })
 }
 
 impl ComponentManager {
@@ -95,11 +90,9 @@ impl ComponentManager {
     ) -> Result<String, ComponentError> {
         let url = format!("{}/{}.json", AEDES_BASE, name);
         let meta: Vec<ModuleData> = self.client.get(&url).send().await?.error_for_status()?.json().await?;
-        let module = meta.first().ok_or_else(|| {
-            ComponentError::Other(format!("no metadata available for {}", name))
-        })?;
+        let module = select_module(name, &meta)?;
 
-        let download_url = resolve_download_url(module, name);
+        let download_url = module.download_url.clone();
 
         // Pre-flight: verify extraction tool exists before downloading
         let extract_tool = if name == "proton" { "tar" } else { "unzip" };
@@ -435,6 +428,33 @@ mod tests {
         fs::create_dir_all(&jadeite).unwrap();
         fs::write(jadeite.join("jadeite.exe"), "binary").unwrap();
         assert!(jadeite_available(tmp.path()));
+    }
+
+    #[test]
+    fn select_module_picks_host_arch_for_proton() {
+        let meta = vec![
+            ModuleData { tag: "t".into(), download_url: "https://x/GE-Proton11-5-aarch64.tar.gz".into(), hash: String::new() },
+            ModuleData { tag: "t".into(), download_url: "https://x/GE-Proton11-5-x86_64.tar.gz".into(), hash: String::new() },
+        ];
+        let m = select_module("proton", &meta).unwrap();
+        let want_aarch64 = std::env::consts::ARCH == "aarch64";
+        assert_eq!(m.download_url.contains("aarch64"), want_aarch64);
+    }
+
+    #[test]
+    fn select_module_jadeite_takes_first() {
+        let meta = vec![
+            ModuleData { tag: "v5.0.1".into(), download_url: "https://x/v5.0.1.zip".into(), hash: String::new() },
+        ];
+        let m = select_module("jadeite", &meta).unwrap();
+        assert_eq!(m.tag, "v5.0.1");
+    }
+
+    #[test]
+    fn select_module_errors_on_empty() {
+        let meta: Vec<ModuleData> = vec![];
+        assert!(select_module("proton", &meta).is_err());
+        assert!(select_module("jadeite", &meta).is_err());
     }
 
     #[test]
