@@ -77,21 +77,20 @@ pub fn start_resume(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
 
     // Load persisted state to determine the operation type
     let data_dir = crate::config::app_data_dir();
-    let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
-    let dl_type = crate::state::DownloadState::load(&state_path)
+    let dl_type = irmin::load_download_state(&data_dir, game.as_str())
         .map(|s| s.download_type)
-        .unwrap_or(crate::state::DownloadType::Fresh);
+        .unwrap_or(irmin::DownloadType::Fresh);
 
     let op = match dl_type {
-        crate::state::DownloadType::Fresh => Op::Download,
-        crate::state::DownloadType::Update => Op::Update,
-        crate::state::DownloadType::Preinstall => Op::Preinstall,
+        irmin::DownloadType::Fresh => Op::Download,
+        irmin::DownloadType::Update => Op::Update,
+        irmin::DownloadType::Preinstall => Op::Preinstall,
     };
 
     let op_label = match dl_type {
-        crate::state::DownloadType::Fresh => "Downloading...",
-        crate::state::DownloadType::Update => "Updating...",
-        crate::state::DownloadType::Preinstall => "Preinstalling...",
+        irmin::DownloadType::Fresh => "Downloading...",
+        irmin::DownloadType::Update => "Updating...",
+        irmin::DownloadType::Preinstall => "Preinstalling...",
     };
 
     let handle = DownloadHandle::new();
@@ -113,13 +112,14 @@ pub fn apply_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
         let client = client.clone();
         let tx = progress_tx.clone();
         let path_str = path.to_string_lossy().to_string();
+        let vo_lang = gc.primary_vo_lang().to_owned();
         tokio::spawn(async move {
             if let Err(e) = irmin::game_installer::validate_asset_name(&preinstall_tag) {
                 let _ = tx.send(SophonProgress::Error { message: format!("invalid preinstall tag: {e}") }).await;
                 return;
             }
             let ops = Operations::new(client.clone(), crate::config::app_data_dir());
-            let result = ops.apply_preinstall(&preinstall_tag, &path_str, &handle, tx.clone()).await;
+            let result = ops.apply_preinstall(game, &vo_lang, &preinstall_tag, &path_str, &handle, tx.clone()).await;
             if let Err(e) = result {
                 let msg = e.to_string();
                 if msg.to_lowercase().contains("cancel") {
@@ -460,7 +460,7 @@ pub fn uninstall_game(app: &mut App, game: GameId) -> Result<(), String> {
         .map_err(|e| format!("failed to remove {}: {e}", path.display()))?;
 
     let data_dir = crate::config::app_data_dir();
-    let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
+    let state_path = irmin::state_file_path(&data_dir, game.as_str());
     let _ = std::fs::remove_file(state_path);
 
     if let Some(gs) = app.games.get_mut(&game) {

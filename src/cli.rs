@@ -188,7 +188,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let tag = info.preinstall_tag.ok_or("no preinstall tag available")?;
             irmin::game_installer::validate_asset_name(&tag)
                 .map_err(|e| format!("invalid preinstall tag: {e}"))?;
-            ops.apply_preinstall(&tag, &path_str, &handle, tx).await?;
+            ops.apply_preinstall(game, &vo_lang, &tag, &path_str, &handle, tx).await?;
             println!("Preinstall applied.");
         }
         Commands::Verify { game, lang } => {
@@ -255,27 +255,26 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
         }
         Commands::Resume { game } => {
             let data_dir = crate::config::app_data_dir();
-            let state_path = crate::state::DownloadState::state_path(&data_dir, game.as_str());
-            let state = crate::state::DownloadState::load(&state_path)
+            let state = irmin::load_download_state(&data_dir, game.as_str())
                 .ok_or("no interrupted download found for this game")?;
             println!(
                 "resuming {:?} for {} from {}",
                 state.download_type,
                 game.as_str(),
-                state.output_path.display()
+                state.output_path
             );
 
             let ops = Operations::new(client.clone(), data_dir);
             let handle = irmin::DownloadHandle::new();
             let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-            let output = state.output_path.to_string_lossy().to_string();
+            let output = state.output_path.clone();
 
             let result = tokio::select! {
                 r = async {
                     match state.download_type {
-                        crate::state::DownloadType::Fresh => ops.download(game, &state.vo_lang, &output, &handle, tx).await,
-                        crate::state::DownloadType::Update => ops.update(game, &state.vo_lang, &output, &handle, tx).await,
-                        crate::state::DownloadType::Preinstall => ops.preinstall(game, &state.vo_lang, &output, &handle, tx).await,
+                        irmin::DownloadType::Fresh => ops.download(game, &state.vo_lang, &output, &handle, tx).await,
+                        irmin::DownloadType::Update => ops.update(game, &state.vo_lang, &output, &handle, tx).await,
+                        irmin::DownloadType::Preinstall => ops.preinstall(game, &state.vo_lang, &output, &handle, tx).await,
                     }
                 } => r,
                 _ = tokio::signal::ctrl_c() => {
