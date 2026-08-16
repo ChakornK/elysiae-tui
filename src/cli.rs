@@ -264,6 +264,17 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
                 state.output_path
             );
 
+            // Sync the configured install path with the resume path so the TUI
+            // later detects and dispatches to the same place.
+            {
+                let p = std::path::PathBuf::from(&state.output_path);
+                let gc = config.game_config(game);
+                if gc.install_path.as_deref() != Some(p.as_path()) {
+                    gc.install_path = Some(p);
+                    config.save()?;
+                }
+            }
+
             let ops = Operations::new(client.clone(), data_dir);
             let handle = irmin::DownloadHandle::new();
             let (tx, mut rx) = tokio::sync::mpsc::channel(64);

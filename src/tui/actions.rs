@@ -60,27 +60,30 @@ pub fn start_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &S
 /// to the correct operation type (Fresh/Update/Preinstall).
 pub fn start_resume(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
     let game = app.active_game;
-    let gc = app.config.game_config(game).clone();
-    let path = match gc.install_path {
-        Some(ref p) => p.clone(),
-        None => {
-            let default = crate::config::app_data_dir().join(game.as_str());
-            if let Err(e) = std::fs::create_dir_all(&default) {
-                app.error_message = Some(format!("cannot create install directory: {e}"));
-                return;
-            }
-            app.config.game_config(game).install_path = Some(default.clone());
-            let _ = app.config.save();
-            default
-        }
-    };
-
-    // Load persisted state to determine the operation type
     let data_dir = crate::config::app_data_dir();
-    let dl_type = irmin::load_download_state(&data_dir, game.as_str())
-        .map(|s| s.download_type)
-        .unwrap_or(irmin::DownloadType::Fresh);
 
+    // The persisted state is the source of truth for where to resume and with
+    // which voice-over language — using the config path here would make irmin
+    // discard chunks whose state recorded a different `output_path`.
+    let Some(state) = irmin::load_download_state(&data_dir, game.as_str()) else {
+        app.error_message = Some("no interrupted download found for this game".to_owned());
+        return;
+    };
+    let path = std::path::PathBuf::from(&state.output_path);
+    if let Err(e) = std::fs::create_dir_all(&path) {
+        app.error_message = Some(format!("cannot create install directory: {e}"));
+        return;
+    }
+    // Keep the configured install path in sync with the resume path so later
+    // detection and dispatch agree.
+    let cfg_path = app.config.game_config(game).install_path.clone();
+    if cfg_path.as_deref() != Some(path.as_path()) {
+        app.config.game_config(game).install_path = Some(path.clone());
+        let _ = app.config.save();
+    }
+
+    let vo_lang = state.vo_lang.clone();
+    let dl_type = state.download_type;
     let op = match dl_type {
         irmin::DownloadType::Fresh => Op::Download,
         irmin::DownloadType::Update => Op::Update,
@@ -95,7 +98,7 @@ pub fn start_resume(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
 
     let handle = DownloadHandle::new();
     app.start_download(game, handle.clone(), op_label);
-    spawn_operation(client, game, gc.primary_vo_lang().to_owned(), path.to_string_lossy().to_string(), handle, progress_tx.clone(), op);
+    spawn_operation(client, game, vo_lang, path.to_string_lossy().to_string(), handle, progress_tx.clone(), op);
 }
 
 /// Applies a previously downloaded preinstall patch.
