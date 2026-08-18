@@ -38,19 +38,42 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     // Load installed tags and resume state
     let data_dir_for_state = crate::config::app_data_dir();
+    let mut config_dirty = false;
     for game in GameId::ALL {
         let gc = app.config.game_config(game).clone();
-        if let Some(ref path) = gc.install_path {
-            let tag = irmin::game_installer::read_installed_tag(path);
-            let installed = tag.is_some();
-            let has_resume = !installed
-                && crate::state::has_partial_download(&data_dir_for_state, path, game.as_str());
-            app.games.insert(game, crate::app::GameStatus {
-                installed_tag: tag,
-                update_info: None,
-                has_resume,
-            });
-        }
+        let vo_lang = gc.primary_vo_lang().to_owned();
+        let tag = gc.install_path.as_ref()
+            .and_then(|p| irmin::game_installer::read_installed_tag(p));
+        let installed = tag.is_some();
+        let has_resume = if installed {
+            false
+        } else {
+            crate::state::resumable_state(
+                &data_dir_for_state,
+                game.as_str(),
+                gc.install_path.as_deref(),
+                &vo_lang,
+            )
+            .map(|state| {
+                // No install path configured — adopt the state's output_path so
+                // the resumable state is never silently discarded by a fresh
+                // download targeting a different (default) path.
+                if gc.install_path.is_none() {
+                    app.config.game_config(game).install_path =
+                        Some(std::path::PathBuf::from(&state.output_path));
+                    config_dirty = true;
+                }
+            })
+            .is_some()
+        };
+        app.games.insert(game, crate::app::GameStatus {
+            installed_tag: tag,
+            update_info: None,
+            has_resume,
+        });
+    }
+    if config_dirty {
+        let _ = app.config.save();
     }
 
     // Sync component installation state from disk to config
