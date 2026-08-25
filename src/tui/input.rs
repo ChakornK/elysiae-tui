@@ -116,7 +116,7 @@ async fn handle_main(
                 if has_resume {
                     actions::start_resume(app, client, progress_tx);
                 } else if has_update {
-                    actions::start_update(app, client, progress_tx);
+                    actions::start_update(game, app, client, progress_tx);
                 } else if installed {
                     if !app.game_running {
                         actions::prepare_and_launch(app, client, progress_tx);
@@ -143,7 +143,7 @@ async fn handle_main(
                 .and_then(|s| s.update_info.as_ref())
                 .is_some_and(|i| i.preinstall_available && !i.preinstall_downloaded);
             if app.download.is_none() && has_preinstall {
-                actions::start_preinstall(app, client, progress_tx);
+                actions::start_preinstall(game, app, client, progress_tx);
             }
         }
         // Apply preinstall: when preinstall is downloaded and update is available

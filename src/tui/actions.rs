@@ -34,9 +34,13 @@ pub fn start_download(app: &mut App, client: &reqwest::Client, progress_tx: &Sen
     spawn_operation(client, game, vo_lang, path.to_string_lossy().to_string(), handle, progress_tx.clone(), Op::Download);
 }
 
-/// Spawns an update task for the active game.
-pub fn start_update(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
-    let game = app.active_game;
+/// Spawns an update task for the given game.
+pub fn start_update(
+    game: GameId,
+    app: &mut App,
+    client: &reqwest::Client,
+    progress_tx: &Sender<SophonProgress>,
+) {
     let gc = app.config.game_config(game).clone();
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();
@@ -45,9 +49,13 @@ pub fn start_update(app: &mut App, client: &reqwest::Client, progress_tx: &Sende
     }
 }
 
-/// Spawns a preinstall download task for the active game.
-pub fn start_preinstall(app: &mut App, client: &reqwest::Client, progress_tx: &Sender<SophonProgress>) {
-    let game = app.active_game;
+/// Spawns a preinstall download task for the given game.
+pub fn start_preinstall(
+    game: GameId,
+    app: &mut App,
+    client: &reqwest::Client,
+    progress_tx: &Sender<SophonProgress>,
+) {
     let gc = app.config.game_config(game).clone();
     if let Some(ref path) = gc.install_path {
         let handle = DownloadHandle::new();

@@ -12,7 +12,6 @@ use irmin::game_installer::UpdateInfo;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tokio::sync::mpsc;
-use tokio::sync::oneshot;
 use crate::app::App;
 use crate::signal;
 use crate::backgrounds::Backgrounds;
@@ -118,8 +117,11 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         let _ = startup_tx.send((true, encoded)).await;
     });
 
-    // Spawn background update check for all installed games
-    let (update_tx, mut update_rx) = oneshot::channel::<HashMap<GameId, UpdateInfo>>();
+    // Spawn background update check for all installed games. The channel is
+    // reused after startup: finishing a download op sends a fresh batch so the
+    // UI's update/preinstall state never goes stale mid-session.
+    let (update_tx, mut update_rx) = mpsc::channel::<HashMap<GameId, UpdateInfo>>(4);
+    let update_tx_clone = update_tx.clone();
     let update_client = client.clone();
     let update_configs: Vec<_> = GameId::ALL
         .iter()
@@ -142,10 +144,11 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
                 results.insert(game, info);
             }
         }
-        let _ = update_tx.send(results);
+        let _ = update_tx_clone.send(results).await;
     });
 
     // Main event loop — TUI is interactive immediately
+    let mut auto_start_done = false;
     loop {
         if *shutdown_rx.borrow() {
             if let Some(ref dl) = app.download {
@@ -177,33 +180,35 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // Receive background update check results
-        if let Ok(updates) = update_rx.try_recv() {
+        while let Ok(updates) = update_rx.try_recv() {
             for (game, info) in &updates {
                 if let Some(gs) = app.games.get_mut(game) {
                     gs.update_info = Some(info.clone());
                 }
             }
-            // Auto-update/preinstall the first eligible game (one at a time)
-            if app.download.is_none() {
+            // Auto-update/preinstall the first eligible game (once per session)
+            if !auto_start_done && app.download.is_none() {
                 for (game, info) in &updates {
                     if info.update_available && app.config.auto_update {
                         let gc = app.config.game_config(*game).clone();
                         if gc.install_path.is_some() {
-                            actions::start_update(&mut app, &client, &progress_tx);
+                            actions::start_update(*game, &mut app, &client, &progress_tx);
+                            auto_start_done = true;
                             break;
                         }
-                    } else if info.preinstall_available && app.config.auto_preload {
+                    } else if info.preinstall_available
+                        && !info.preinstall_downloaded
+                        && app.config.auto_preload
+                    {
                         let gc = app.config.game_config(*game).clone();
                         if gc.install_path.is_some() {
-                            actions::start_preinstall(&mut app, &client, &progress_tx);
+                            actions::start_preinstall(*game, &mut app, &client, &progress_tx);
+                            auto_start_done = true;
                             break;
                         }
                     }
                 }
             }
-            let (_tx, rx) = oneshot::channel();
-            update_rx = rx;
-            drop(_tx);
         }
 
         if event::poll(Duration::from_millis(33))?
@@ -353,7 +358,34 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
         }
 
         while let Ok(progress) = progress_rx.try_recv() {
+            // A finished download op may have changed on-disk state (preinstall
+            // marker written, update applied) — schedule a state refresh so the
+            // UI stops offering the completed op.
+            let refresh_game = if matches!(progress, SophonProgress::Finished)
+                && let Some(ref dl) = app.download
+            {
+                Some(dl.game_id)
+            } else {
+                None
+            };
             app.update_progress(progress);
+            if let Some(game) = refresh_game {
+                let gc = app.config.game_config(game).clone();
+                if let Some(path) = gc.install_path.as_ref() {
+                    let update_tx = update_tx.clone();
+                    let update_client = client.clone();
+                    let vo_lang = gc.primary_vo_lang().to_owned();
+                    let path = path.to_string_lossy().to_string();
+                    tokio::spawn(async move {
+                        let ops = Operations::new(update_client, crate::config::app_data_dir());
+                        if let Ok(info) = ops.check_update(game, &vo_lang, &path).await {
+                            let mut results = HashMap::new();
+                            results.insert(game, info);
+                            let _ = update_tx.send(results).await;
+                        }
+                    });
+                }
+            }
         }
 
         // Receive game launch log lines

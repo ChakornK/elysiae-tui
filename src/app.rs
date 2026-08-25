@@ -194,6 +194,10 @@ pub struct App {
 impl App {
     /// Creates a new App with the given config. Starts on the game list view.
     pub fn new(config: Config) -> Self {
+        let game_list_index = GameId::ALL
+            .iter()
+            .position(|g| *g == config.selected_game)
+            .unwrap_or(0);
         Self {
             active_game: config.selected_game,
             games: HashMap::new(),
@@ -201,7 +205,7 @@ impl App {
             download: None,
             config,
             should_quit: false,
-            game_list_index: 0,
+            game_list_index,
             status_message: None,
             error_message: None,
             dialog: None,
