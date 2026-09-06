@@ -194,6 +194,10 @@ pub struct App {
 impl App {
     /// Creates a new App with the given config. Starts on the game list view.
     pub fn new(config: Config) -> Self {
+        let game_list_index = GameId::ALL
+            .iter()
+            .position(|g| *g == config.selected_game)
+            .unwrap_or(0);
         Self {
             active_game: config.selected_game,
             games: HashMap::new(),
@@ -201,7 +205,7 @@ impl App {
             download: None,
             config,
             should_quit: false,
-            game_list_index: 0,
+            game_list_index,
             status_message: None,
             error_message: None,
             dialog: None,
@@ -413,15 +417,18 @@ impl App {
             if let Some(gs) = self.games.get_mut(&game_id) {
                 let data_dir = crate::config::app_data_dir();
                 let install_path = self.config.games.get(&game_id).and_then(|c| c.install_path.as_ref());
+                let vo_lang = self.config.games.get(&game_id)
+                    .map(|c| c.primary_vo_lang().to_owned())
+                    .unwrap_or_else(|| "en-us".to_owned());
                 let installed = install_path
                     .and_then(|p| irmin::game_installer::read_installed_tag(p))
                     .is_some();
-                let partial = install_path
-                    .map(|p| {
-                        crate::state::has_partial_download(&data_dir, p, game_id.as_str())
+                let resumable = install_path
+                    .and_then(|p| {
+                        crate::state::resumable_state(&data_dir, game_id.as_str(), Some(p), &vo_lang)
                     })
-                    .unwrap_or(false);
-                gs.has_resume = !installed && partial;
+                    .is_some();
+                gs.has_resume = !installed && resumable;
             }
         }
         self.download = None;
