@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use tokio::io::AsyncWriteExt;
@@ -15,18 +15,33 @@ pub enum ComponentProgress {
     Error { message: String },
 }
 
-/// Metadata returned by the Aedes component API.
-#[derive(Debug, Deserialize)]
+#[derive(Debug)]
 struct ModuleData {
     download_url: String,
-    #[allow(dead_code)]
-    hash: String,
+    checksum: String,
     tag: String,
 }
 
-/// Selects the appropriate module entry for the current architecture.
-/// ARM builds contain "aarch64" in the URL; x86_64 builds do not.
-/// Manages Proton and Jadeite downloads from the Aedes CDN.
+/// Metadata returned by the Aedes v3 component API.
+#[derive(Debug, Deserialize)]
+struct AedesComponentData {
+    tag: String,
+    download: AedesDownloads,
+}
+
+#[derive(Debug, Deserialize)]
+struct AedesDownloads {
+    amd64: AedesDownload,
+    aarch64: AedesDownload,
+}
+
+#[derive(Debug, Deserialize)]
+struct AedesDownload {
+    url: String,
+    checksum: String,
+}
+
+/// Manages Phlogiston and Jadeite component installations.
 pub struct ComponentManager {
     client: reqwest::Client,
     data_dir: PathBuf,
@@ -42,28 +57,91 @@ pub enum ComponentError {
     Other(String),
 }
 
-const AEDES_BASE: &str = "https://aedes.elysiae.app/components";
+const AEDES_BASE: &str = "https://aedes.elysiae.app";
+// Aedes v3 only exposes Phlogiston, so Jadeite stays pinned to its upstream release.
+const JADEITE_TAG: &str = "v5.0.1";
+const JADEITE_URL: &str =
+    "https://codeberg.org/mkrsym1/jadeite/releases/download/v5.0.1/v5.0.1.zip";
+const JADEITE_CHECKSUM: &str = "95986915debe66d6308ae81ead28c362eff79624f806da22a88b9073259d703a";
 
-/// Returns the correct download URL for the current architecture.
-/// The Aedes API may serve architecture-specific URLs, or we override
-/// to get the correct GE-Proton build for x86_64 vs aarch64.
-fn resolve_download_url(module: &ModuleData, name: &str) -> String {
-    let arch = std::env::consts::ARCH;
-    // If the URL already matches our arch, use it directly
-    if arch == "aarch64" && module.download_url.contains("aarch64") {
-        return module.download_url.clone();
+fn phlogiston_metadata_url(arch: &str) -> Result<String, ComponentError> {
+    let arch = match arch {
+        "x86_64" => "amd64",
+        "aarch64" => "aarch64",
+        _ => {
+            return Err(ComponentError::Other(format!(
+                "unsupported component architecture: {arch}"
+            )));
+        }
+    };
+    Ok(format!(
+        "{AEDES_BASE}/getComponentInfo?component=phlogiston&arch={arch}&latest=true"
+    ))
+}
+
+fn select_phlogiston_download(
+    data: AedesComponentData,
+    arch: &str,
+) -> Result<ModuleData, ComponentError> {
+    let download = match arch {
+        "x86_64" => data.download.amd64,
+        "aarch64" => data.download.aarch64,
+        _ => {
+            return Err(ComponentError::Other(format!(
+                "unsupported component architecture: {arch}"
+            )));
+        }
+    };
+
+    Ok(ModuleData {
+        download_url: download.url,
+        checksum: download.checksum,
+        tag: data.tag,
+    })
+}
+
+fn sha256_file(path: &Path) -> Result<String, std::io::Error> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = file.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
     }
-    if arch == "x86_64" && !module.download_url.contains("aarch64") {
-        return module.download_url.clone();
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+async fn fetch_module_data(
+    client: &reqwest::Client,
+    name: &str,
+) -> Result<ModuleData, ComponentError> {
+    match name {
+        "proton" => {
+            let url = phlogiston_metadata_url(std::env::consts::ARCH)?;
+            let data = client
+                .get(url)
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+            select_phlogiston_download(data, std::env::consts::ARCH)
+        }
+        "jadeite" => Ok(ModuleData {
+            download_url: JADEITE_URL.to_owned(),
+            checksum: JADEITE_CHECKSUM.to_owned(),
+            tag: JADEITE_TAG.to_owned(),
+        }),
+        _ => Err(ComponentError::Other(format!(
+            "unsupported component: {name}"
+        ))),
     }
-    // Override: swap architecture in the GitHub release URL
-    if name == "proton" && arch == "x86_64" && module.download_url.contains("aarch64") {
-        return module.download_url.replace("-aarch64.tar.gz", ".tar.gz");
-    }
-    if name == "proton" && arch == "aarch64" && !module.download_url.contains("aarch64") {
-        return module.download_url.replace(".tar.gz", "-aarch64.tar.gz");
-    }
-    module.download_url.clone()
 }
 
 impl ComponentManager {
@@ -71,7 +149,7 @@ impl ComponentManager {
         Self { client, data_dir }
     }
 
-    /// Downloads and installs Proton. Returns the installed tag.
+    /// Downloads and installs the Proton-compatible Phlogiston runtime.
     pub async fn install_proton(
         &self,
         tx: Sender<ComponentProgress>,
@@ -93,13 +171,8 @@ impl ComponentManager {
         extract_dir: &str,
         tx: Sender<ComponentProgress>,
     ) -> Result<String, ComponentError> {
-        let url = format!("{}/{}.json", AEDES_BASE, name);
-        let meta: Vec<ModuleData> = self.client.get(&url).send().await?.error_for_status()?.json().await?;
-        let module = meta.first().ok_or_else(|| {
-            ComponentError::Other(format!("no metadata available for {}", name))
-        })?;
-
-        let download_url = resolve_download_url(module, name);
+        let module = fetch_module_data(&self.client, name).await?;
+        let download_url = module.download_url.as_str();
 
         // Pre-flight: verify extraction tool exists before downloading
         let extract_tool = if name == "proton" { "tar" } else { "unzip" };
@@ -117,7 +190,12 @@ impl ComponentManager {
             )));
         }
 
-        let mut response = self.client.get(&download_url).send().await?.error_for_status()?;
+        let mut response = self
+            .client
+            .get(download_url)
+            .send()
+            .await?
+            .error_for_status()?;
         let total = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
 
@@ -152,32 +230,20 @@ impl ComponentManager {
             )));
         }
 
-        // Verify hash integrity
-        if !module.hash.is_empty() {
-            let expected_hash = module.hash.clone();
+        if !module.checksum.is_empty() {
+            let expected_checksum = module.checksum.clone();
             let archive_for_hash = archive_path.clone();
-            let actual_hash = tokio::task::spawn_blocking(move || {
-                use md5::{Md5, Digest};
-                use std::io::Read;
-                let mut file = std::fs::File::open(&archive_for_hash)?;
-                let mut hasher = Md5::new();
-                let mut buf = [0u8; 64 * 1024];
-                loop {
-                    let n = file.read(&mut buf)?;
-                    if n == 0 { break; }
-                    hasher.update(&buf[..n]);
-                }
-                Ok::<String, std::io::Error>(format!("{:x}", hasher.finalize()))
-            })
-            .await
-            .map_err(|e| ComponentError::Other(format!("hash task failed: {e}")))?
-            .map_err(ComponentError::Io)?;
+            let actual_checksum =
+                tokio::task::spawn_blocking(move || sha256_file(&archive_for_hash))
+                    .await
+                    .map_err(|e| ComponentError::Other(format!("checksum task failed: {e}")))?
+                    .map_err(ComponentError::Io)?;
 
-            if actual_hash != expected_hash {
+            if actual_checksum != expected_checksum {
                 let _ = std::fs::remove_file(&archive_path);
                 return Err(ComponentError::Other(format!(
-                    "{} hash mismatch: expected {}, got {}",
-                    name, expected_hash, actual_hash
+                    "{} checksum mismatch: expected {}, got {}",
+                    name, expected_checksum, actual_checksum
                 )));
             }
         }
@@ -251,7 +317,7 @@ pub fn read_component_tag(data_dir: &std::path::Path, name: &str) -> Option<Stri
     std::fs::read_to_string(path).ok().filter(|s| !s.is_empty())
 }
 
-/// Checks if a component is outdated by comparing the local tag against the Aedes API.
+/// Checks if a component is outdated by comparing its local and current metadata tags.
 /// Returns `true` if an update is available (remote tag differs from installed tag).
 /// Returns `false` if up-to-date or if the check fails (network error, etc.).
 pub async fn component_needs_update(
@@ -263,17 +329,9 @@ pub async fn component_needs_update(
         Some(tag) => tag,
         None => return false, // Not installed — handled by availability checks
     };
-    let url = format!("{}/{}.json", AEDES_BASE, name);
-    let meta: Vec<ModuleData> = match client.get(&url).send().await {
-        Ok(resp) => match resp.json().await {
-            Ok(m) => m,
-            Err(_) => return false,
-        },
-        Err(_) => return false,
-    };
-    match meta.first() {
-        Some(module) => module.tag != installed_tag,
-        None => false,
+    match fetch_module_data(client, name).await {
+        Ok(module) => module.tag != installed_tag,
+        Err(_) => false,
     }
 }
 
@@ -384,6 +442,76 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    fn phlogiston_metadata() -> AedesComponentData {
+        serde_json::from_str(
+            r#"{
+                "tag": "11-0",
+                "download": {
+                    "amd64": {
+                        "url": "https://example.com/phlogiston-x86_64.tar.gz",
+                        "checksum": "amd64-checksum"
+                    },
+                    "aarch64": {
+                        "url": "https://example.com/phlogiston-aarch64.tar.gz",
+                        "checksum": "aarch64-checksum"
+                    }
+                },
+                "prerelease": false
+            }"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn builds_aedes_v3_phlogiston_metadata_url() {
+        assert_eq!(
+            phlogiston_metadata_url("x86_64").unwrap(),
+            "https://aedes.elysiae.app/getComponentInfo?component=phlogiston&arch=amd64&latest=true"
+        );
+    }
+
+    #[test]
+    fn selects_amd64_phlogiston_download_for_x86_64() {
+        let module = select_phlogiston_download(phlogiston_metadata(), "x86_64").unwrap();
+        assert_eq!(
+            module.download_url,
+            "https://example.com/phlogiston-x86_64.tar.gz"
+        );
+        assert_eq!(module.checksum, "amd64-checksum");
+        assert_eq!(module.tag, "11-0");
+    }
+
+    #[test]
+    fn selects_aarch64_phlogiston_download_for_aarch64() {
+        let module = select_phlogiston_download(phlogiston_metadata(), "aarch64").unwrap();
+        assert_eq!(
+            module.download_url,
+            "https://example.com/phlogiston-aarch64.tar.gz"
+        );
+        assert_eq!(module.checksum, "aarch64-checksum");
+        assert_eq!(module.tag, "11-0");
+    }
+
+    #[test]
+    fn rejects_unsupported_component_architecture() {
+        let error = select_phlogiston_download(phlogiston_metadata(), "riscv64").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "unsupported component architecture: riscv64"
+        );
+    }
+
+    #[test]
+    fn computes_sha256_checksum() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("archive");
+        fs::write(&path, b"abc").unwrap();
+        assert_eq!(
+            sha256_file(&path).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
 
     #[test]
     fn proton_available_returns_false_for_empty_dir() {
