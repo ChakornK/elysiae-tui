@@ -190,11 +190,10 @@ pub fn prepare_and_launch(
         .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
         .join("elysiae-tui");
 
-    use crate::components::{proton_available, jadeite_available};
+    use crate::components::proton_available;
     let needs_proton = !proton_available(&data_dir);
-    let needs_jadeite = game.needs_jadeite() && !jadeite_available(&data_dir);
 
-    if !needs_proton && !needs_jadeite {
+    if !needs_proton {
         // Components ready — mark as ready to launch (handled by caller)
         app.ready_to_launch = true;
         return;
@@ -210,7 +209,7 @@ pub fn prepare_and_launch(
     let client = client.clone();
 
     tokio::spawn(async move {
-        if let Err(msg) = ensure_components(&client, &data_dir, game, &tx, &handle).await {
+        if let Err(msg) = ensure_components(&client, &data_dir, &tx, &handle).await {
             if msg != "Cancelled" {
                 let _ = tx.send(SophonProgress::Error { message: msg }).await;
             }
@@ -244,7 +243,7 @@ fn spawn_operation(
 
         // Auto-install components before any download operation
         if matches!(op, Op::Download | Op::Update | Op::Preinstall)
-            && let Err(msg) = ensure_components(&client, &data_dir, game, &tx, &handle).await
+            && let Err(msg) = ensure_components(&client, &data_dir, &tx, &handle).await
         {
             if msg.to_lowercase().contains("cancel") {
                 return;
@@ -281,36 +280,35 @@ fn spawn_operation(
     });
 }
 
-/// Installs Proton (and Jadeite for HKRPG) if not already present or outdated.
-/// Persists installed component versions to config.
+/// Installs Phlogiston if it is missing or outdated.
+/// Persists the installed runtime version to config.
 async fn ensure_components(
     client: &reqwest::Client,
     data_dir: &std::path::Path,
-    game: GameId,
     tx: &Sender<SophonProgress>,
     handle: &DownloadHandle,
 ) -> Result<(), String> {
-    use crate::components::{component_needs_update, jadeite_available, proton_available};
+    use crate::components::{proton_available, proton_needs_update};
     use crate::config::Config;
 
     let proton_missing = !proton_available(data_dir);
     let proton_outdated = if !proton_missing {
-        component_needs_update(client, data_dir, "proton").await
+        proton_needs_update(client, data_dir).await
     } else {
         false
     };
 
     if proton_missing || proton_outdated {
         let label = if proton_outdated {
-            "Updating Proton"
+            "Updating Phlogiston"
         } else {
-            "Installing Proton"
+            "Installing Phlogiston"
         };
         // Remove stale/wrong-arch install before downloading fresh
         let proton_dir = data_dir.join("proton");
         let _ = crate::atomic::safe_remove_dir_all(&proton_dir);
         let _ = crate::atomic::safe_remove_dir_all(&data_dir.join("proton-data"));
-        let tag = install_component_with_progress(client, data_dir, "proton", label, tx, handle)
+        let tag = install_component_with_progress(client, data_dir, label, tx, handle)
             .await?;
         let mut config = Config::load();
         config.installed_components.proton = Some(tag);
@@ -319,27 +317,6 @@ async fn ensure_components(
 
     if handle.is_cancelled() {
         return Err("Cancelled".to_owned());
-    }
-
-    if game.needs_jadeite() {
-        let jadeite_missing = !jadeite_available(data_dir);
-        let jadeite_outdated = if !jadeite_missing {
-            component_needs_update(client, data_dir, "jadeite").await
-        } else {
-            false
-        };
-
-        if jadeite_missing || jadeite_outdated {
-            let label = if jadeite_outdated { "Updating Jadeite" } else { "Installing Jadeite" };
-            if jadeite_outdated {
-                let _ = crate::atomic::safe_remove_dir_all(&data_dir.join("jadeite"));
-            }
-            let tag = install_component_with_progress(client, data_dir, "jadeite", label, tx, handle)
-                .await?;
-            let mut config = Config::load();
-            config.installed_components.jadeite = Some(tag);
-            let _ = config.save();
-        }
     }
 
     Ok(())
@@ -351,7 +328,6 @@ async fn ensure_components(
 async fn install_component_with_progress(
     client: &reqwest::Client,
     data_dir: &std::path::Path,
-    component: &str,
     status_msg: &str,
     tx: &Sender<SophonProgress>,
     handle: &DownloadHandle,
@@ -365,20 +341,12 @@ async fn install_component_with_progress(
     let mgr = ComponentManager::new(client.clone(), data_dir.to_path_buf());
     let (comp_tx, mut comp_rx) = tokio::sync::mpsc::channel::<ComponentProgress>(64);
 
-    let comp_name = component.to_owned();
-    let install_task = tokio::spawn(async move {
-        if comp_name == "proton" {
-            mgr.install_proton(comp_tx).await
-        } else {
-            mgr.install_jadeite(comp_tx).await
-        }
-    });
+    let install_task = tokio::spawn(async move { mgr.install_proton(comp_tx).await });
 
     let mut last_bytes: u64 = 0;
     let mut last_time = std::time::Instant::now();
     let mut speed_bps: f64 = 0.0;
     let status = status_msg.to_owned();
-    let comp_for_cleanup = component.to_owned();
 
     loop {
         tokio::select! {
@@ -417,8 +385,7 @@ async fn install_component_with_progress(
             }
             _ = handle.cancelled_future() => {
                 install_task.abort();
-                let archive = data_dir.join(format!("{}.archive", comp_for_cleanup));
-                let _ = std::fs::remove_file(&archive);
+                let _ = std::fs::remove_file(data_dir.join("proton.archive"));
                 return Err("Cancelled".to_owned());
             }
         }
@@ -428,8 +395,7 @@ async fn install_component_with_progress(
         Ok(Ok(tag)) => Ok(tag),
         Ok(Err(e)) => Err(format!("{}: {}", status_msg, e)),
         Err(e) if e.is_cancelled() => {
-            let archive = data_dir.join(format!("{}.archive", component));
-            let _ = std::fs::remove_file(&archive);
+            let _ = std::fs::remove_file(data_dir.join("proton.archive"));
             Err("Cancelled".to_owned())
         }
         Err(e) => Err(format!("{}: task panicked: {}", status_msg, e)),
@@ -473,7 +439,7 @@ pub fn uninstall_game(app: &mut App, game: GameId) -> Result<(), String> {
     Ok(())
 }
 
-/// Removes a component (proton or jadeite) and clears config.
+/// Removes the installed runtime and clears its config entry.
 pub fn uninstall_component(app: &mut App, component: &str) -> Result<(), String> {
     if app.download.is_some() {
         return Err("cannot uninstall components while a download is active".to_owned());
@@ -486,12 +452,6 @@ pub fn uninstall_component(app: &mut App, component: &str) -> Result<(), String>
             let _ = crate::atomic::safe_remove_dir_all(&data_dir.join("proton-data"));
             let _ = std::fs::remove_file(data_dir.join("proton.tag"));
             app.config.installed_components.proton = None;
-        }
-        "jadeite" => {
-            crate::atomic::safe_remove_dir_all(&data_dir.join("jadeite"))
-                .map_err(|e| format!("jadeite: {e}"))?;
-            let _ = std::fs::remove_file(data_dir.join("jadeite.tag"));
-            app.config.installed_components.jadeite = None;
         }
         _ => return Err("unknown component".to_string()),
     }

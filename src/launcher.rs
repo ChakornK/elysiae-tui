@@ -4,17 +4,15 @@ use tokio::sync::mpsc::Sender;
 
 use crate::game::GameId;
 
-/// Launches games through Proton, with optional Jadeite injection for hkrpg.
+/// Launches games through the installed Proton-compatible runtime.
 pub struct Launcher {
     data_dir: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum LaunchError {
-    #[error("proton not installed at {0}")]
-    ProtonMissing(PathBuf),
-    #[error("jadeite not installed at {0}")]
-    JadeiteMissing(PathBuf),
+    #[error("Phlogiston not installed at {0}")]
+    PhlogistonMissing(PathBuf),
     #[error("game executable not found at {0}")]
     GameExeMissing(PathBuf),
     #[error("failed to spawn process: {0}")]
@@ -27,7 +25,7 @@ impl Launcher {
         Self { data_dir }
     }
 
-    /// Launches the game via Proton in the background.
+    /// Launches the game via Phlogiston in the background.
     /// Streams stdout/stderr lines to `log_tx` for TUI display.
     pub fn launch(
         &self,
@@ -37,7 +35,7 @@ impl Launcher {
     ) -> Result<(), LaunchError> {
         let proton_bin = self.data_dir.join("proton").join("proton");
         if !proton_bin.exists() {
-            return Err(LaunchError::ProtonMissing(proton_bin));
+            return Err(LaunchError::PhlogistonMissing(proton_bin));
         }
 
         let exe_path = game_dir.join(game.exe_name());
@@ -47,15 +45,7 @@ impl Launcher {
 
         let compat_data = self.data_dir.join("proton-data");
 
-        let mut args: Vec<PathBuf> = vec!["run".into()];
-        if game.needs_jadeite() {
-            let jadeite_exe = self.data_dir.join("jadeite").join("jadeite.exe");
-            if !jadeite_exe.exists() {
-                return Err(LaunchError::JadeiteMissing(jadeite_exe));
-            }
-            args.push(jadeite_exe);
-        }
-        args.push(exe_path);
+        let args: Vec<PathBuf> = vec!["run".into(), exe_path];
 
         tokio::spawn(async move {
             use tokio::io::{AsyncBufReadExt, BufReader};

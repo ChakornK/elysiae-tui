@@ -41,7 +41,7 @@ struct AedesDownload {
     checksum: String,
 }
 
-/// Manages Phlogiston and Jadeite component installations.
+/// Manages Phlogiston runtime installations.
 pub struct ComponentManager {
     client: reqwest::Client,
     data_dir: PathBuf,
@@ -58,11 +58,6 @@ pub enum ComponentError {
 }
 
 const AEDES_BASE: &str = "https://aedes.elysiae.app";
-// Aedes v3 only exposes Phlogiston, so Jadeite stays pinned to its upstream release.
-const JADEITE_TAG: &str = "v5.0.1";
-const JADEITE_URL: &str =
-    "https://codeberg.org/mkrsym1/jadeite/releases/download/v5.0.1/v5.0.1.zip";
-const JADEITE_CHECKSUM: &str = "95986915debe66d6308ae81ead28c362eff79624f806da22a88b9073259d703a";
 
 fn phlogiston_metadata_url(arch: &str) -> Result<String, ComponentError> {
     let arch = match arch {
@@ -117,31 +112,16 @@ fn sha256_file(path: &Path) -> Result<String, std::io::Error> {
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-async fn fetch_module_data(
-    client: &reqwest::Client,
-    name: &str,
-) -> Result<ModuleData, ComponentError> {
-    match name {
-        "proton" => {
-            let url = phlogiston_metadata_url(std::env::consts::ARCH)?;
-            let data = client
-                .get(url)
-                .send()
-                .await?
-                .error_for_status()?
-                .json()
-                .await?;
-            select_phlogiston_download(data, std::env::consts::ARCH)
-        }
-        "jadeite" => Ok(ModuleData {
-            download_url: JADEITE_URL.to_owned(),
-            checksum: JADEITE_CHECKSUM.to_owned(),
-            tag: JADEITE_TAG.to_owned(),
-        }),
-        _ => Err(ComponentError::Other(format!(
-            "unsupported component: {name}"
-        ))),
-    }
+async fn fetch_module_data(client: &reqwest::Client) -> Result<ModuleData, ComponentError> {
+    let url = phlogiston_metadata_url(std::env::consts::ARCH)?;
+    let data = client
+        .get(url)
+        .send()
+        .await?
+        .error_for_status()?
+        .json()
+        .await?;
+    select_phlogiston_download(data, std::env::consts::ARCH)
 }
 
 impl ComponentManager {
@@ -154,40 +134,28 @@ impl ComponentManager {
         &self,
         tx: Sender<ComponentProgress>,
     ) -> Result<String, ComponentError> {
-        self.install_component("proton", "proton", tx).await
-    }
-
-    /// Downloads and installs Jadeite. Returns the installed tag.
-    pub async fn install_jadeite(
-        &self,
-        tx: Sender<ComponentProgress>,
-    ) -> Result<String, ComponentError> {
-        self.install_component("jadeite", "jadeite", tx).await
+        self.install_component(tx).await
     }
 
     async fn install_component(
         &self,
-        name: &str,
-        extract_dir: &str,
         tx: Sender<ComponentProgress>,
     ) -> Result<String, ComponentError> {
-        let module = fetch_module_data(&self.client, name).await?;
+        let module = fetch_module_data(&self.client).await?;
         let download_url = module.download_url.as_str();
 
         // Pre-flight: verify extraction tool exists before downloading
-        let extract_tool = if name == "proton" { "tar" } else { "unzip" };
         if std::process::Command::new("which")
-            .arg(extract_tool)
+            .arg("tar")
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
             .map(|s| !s.success())
             .unwrap_or(true)
         {
-            return Err(ComponentError::Other(format!(
-                "'{}' is not installed — required to extract {}",
-                extract_tool, name
-            )));
+            return Err(ComponentError::Other(
+                "'tar' is not installed — required to extract Phlogiston".to_owned(),
+            ));
         }
 
         let mut response = self
@@ -199,8 +167,8 @@ impl ComponentManager {
         let total = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
 
-        let dest_dir = self.data_dir.join(extract_dir);
-        let archive_path = self.data_dir.join(format!("{}.archive", name));
+        let dest_dir = self.data_dir.join("proton");
+        let archive_path = self.data_dir.join("proton.archive");
 
         // Ensure parent dir exists but don't create dest_dir yet (extraction creates it)
         if let Some(parent) = archive_path.parent() {
@@ -225,8 +193,8 @@ impl ComponentManager {
         if total > 0 && downloaded != total {
             let _ = std::fs::remove_file(&archive_path);
             return Err(ComponentError::Other(format!(
-                "{} download incomplete: got {} of {} bytes",
-                name, downloaded, total
+                "Phlogiston download incomplete: got {} of {} bytes",
+                downloaded, total
             )));
         }
 
@@ -242,8 +210,8 @@ impl ComponentManager {
             if actual_checksum != expected_checksum {
                 let _ = std::fs::remove_file(&archive_path);
                 return Err(ComponentError::Other(format!(
-                    "{} checksum mismatch: expected {}, got {}",
-                    name, expected_checksum, actual_checksum
+                    "Phlogiston checksum mismatch: expected {}, got {}",
+                    expected_checksum, actual_checksum
                 )));
             }
         }
@@ -257,16 +225,10 @@ impl ComponentManager {
         // Run extraction on a blocking thread to avoid stalling the async runtime
         let archive_clone = archive_path.clone();
         let dest_clone = dest_dir.clone();
-        let extract_name = name.to_owned();
-        let extract_result = tokio::task::spawn_blocking(move || {
-            if extract_name == "proton" {
-                extract_tar_gz(&archive_clone, &dest_clone)
-            } else {
-                extract_zip(&archive_clone, &dest_clone)
-            }
-        })
-        .await
-        .map_err(|e| ComponentError::Other(format!("extraction task failed: {e}")))?;
+        let extract_result =
+            tokio::task::spawn_blocking(move || extract_tar_gz(&archive_clone, &dest_clone))
+                .await
+                .map_err(|e| ComponentError::Other(format!("extraction task failed: {e}")))?;
 
         // On extraction failure, clean up dest dir so future installs aren't blocked
         if let Err(e) = extract_result {
@@ -275,36 +237,13 @@ impl ComponentManager {
             return Err(e);
         }
 
-        // Post-install for jadeite
-        if name == "jadeite" {
-            let script = dest_dir.join("block_analytics.sh");
-            if script.exists() {
-                let status = tokio::process::Command::new("sh")
-                    .arg(&script)
-                    .current_dir(&dest_dir)
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status()
-                    .await?;
-                if !status.success() {
-                    let _ = crate::atomic::safe_remove_dir_all(&dest_dir);
-                    return Err(ComponentError::Other(
-                        "block_analytics.sh failed".to_owned(),
-                    ));
-                }
-            }
-        }
-
-        // Create proton-data dir
-        if name == "proton" {
-            std::fs::create_dir_all(self.data_dir.join("proton-data"))?;
-        }
+        std::fs::create_dir_all(self.data_dir.join("proton-data"))?;
 
         let _ = std::fs::remove_file(&archive_path);
 
         let tag = module.tag.clone();
         // Persist tag so the main thread can update config after Finished
-        let tag_path = self.data_dir.join(format!("{}.tag", name));
+        let tag_path = self.data_dir.join("proton.tag");
         let _ = std::fs::write(&tag_path, &tag);
         let _ = tx.try_send(ComponentProgress::Finished { tag: tag.clone() });
         Ok(tag)
@@ -317,19 +256,18 @@ pub fn read_component_tag(data_dir: &std::path::Path, name: &str) -> Option<Stri
     std::fs::read_to_string(path).ok().filter(|s| !s.is_empty())
 }
 
-/// Checks if a component is outdated by comparing its local and current metadata tags.
+/// Checks whether Phlogiston is outdated by comparing local and remote tags.
 /// Returns `true` if an update is available (remote tag differs from installed tag).
 /// Returns `false` if up-to-date or if the check fails (network error, etc.).
-pub async fn component_needs_update(
+pub async fn proton_needs_update(
     client: &reqwest::Client,
     data_dir: &std::path::Path,
-    name: &str,
 ) -> bool {
-    let installed_tag = match read_component_tag(data_dir, name) {
+    let installed_tag = match read_component_tag(data_dir, "proton") {
         Some(tag) => tag,
         None => return false, // Not installed — handled by availability checks
     };
-    match fetch_module_data(client, name).await {
+    match fetch_module_data(client).await {
         Ok(module) => module.tag != installed_tag,
         Err(_) => false,
     }
@@ -380,15 +318,6 @@ fn is_correct_arch(path: &std::path::Path) -> bool {
     }
 }
 
-/// Checks whether Jadeite directory exists and is non-empty.
-pub fn jadeite_available(data_dir: &std::path::Path) -> bool {
-    let jadeite_dir = data_dir.join("jadeite");
-    jadeite_dir.exists()
-        && std::fs::read_dir(&jadeite_dir)
-            .map(|mut d| d.next().is_some())
-            .unwrap_or(false)
-}
-
 fn extract_tar_gz(
     archive: &std::path::Path,
     dest: &std::path::Path,
@@ -409,28 +338,6 @@ fn extract_tar_gz(
     if !status.success() {
         return Err(ComponentError::Other(format!(
             "tar extraction failed with exit code {}",
-            status.code().unwrap_or(-1)
-        )));
-    }
-    Ok(())
-}
-
-fn extract_zip(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), ComponentError> {
-    use std::process::{Command, Stdio};
-    let status = Command::new("unzip")
-        .args([
-            "-o",
-            archive.to_str().unwrap_or_default(),
-            "-d",
-            dest.to_str().unwrap_or_default(),
-        ])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map_err(ComponentError::Io)?;
-    if !status.success() {
-        return Err(ComponentError::Other(format!(
-            "unzip extraction failed with exit code {}",
             status.code().unwrap_or(-1)
         )));
     }
@@ -544,28 +451,6 @@ mod tests {
     }
 
     #[test]
-    fn jadeite_available_returns_false_for_empty_dir() {
-        let tmp = TempDir::new().unwrap();
-        fs::create_dir_all(tmp.path().join("jadeite")).unwrap();
-        assert!(!jadeite_available(tmp.path()));
-    }
-
-    #[test]
-    fn jadeite_available_returns_false_when_missing() {
-        let tmp = TempDir::new().unwrap();
-        assert!(!jadeite_available(tmp.path()));
-    }
-
-    #[test]
-    fn jadeite_available_returns_true_when_populated() {
-        let tmp = TempDir::new().unwrap();
-        let jadeite = tmp.path().join("jadeite");
-        fs::create_dir_all(&jadeite).unwrap();
-        fs::write(jadeite.join("jadeite.exe"), "binary").unwrap();
-        assert!(jadeite_available(tmp.path()));
-    }
-
-    #[test]
     fn extract_tar_gz_fails_on_invalid_archive() {
         let tmp = TempDir::new().unwrap();
         let archive = tmp.path().join("bad.tar.gz");
@@ -575,18 +460,6 @@ mod tests {
         let result = extract_tar_gz(&archive, &dest);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("tar extraction failed"));
-    }
-
-    #[test]
-    fn extract_zip_fails_on_invalid_archive() {
-        let tmp = TempDir::new().unwrap();
-        let archive = tmp.path().join("bad.zip");
-        fs::write(&archive, "not a real archive").unwrap();
-        let dest = tmp.path().join("output");
-        fs::create_dir_all(&dest).unwrap();
-        let result = extract_zip(&archive, &dest);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("unzip extraction failed"));
     }
 
     #[test]
@@ -607,28 +480,6 @@ mod tests {
         assert!(status.success());
 
         let result = extract_tar_gz(&archive, &dest);
-        assert!(result.is_ok());
-        assert!(dest.join("hello.txt").exists());
-    }
-
-    #[test]
-    fn extract_zip_succeeds_on_valid_archive() {
-        let tmp = TempDir::new().unwrap();
-        let archive = tmp.path().join("test.zip");
-        let dest = tmp.path().join("output");
-        fs::create_dir_all(&dest).unwrap();
-
-        // Create a valid zip with a single file
-        let src_file = tmp.path().join("hello.txt");
-        fs::write(&src_file, "world").unwrap();
-        let status = std::process::Command::new("zip")
-            .args(["-j", archive.to_str().unwrap(), src_file.to_str().unwrap()])
-            .stdout(std::process::Stdio::null())
-            .status()
-            .unwrap();
-        assert!(status.success());
-
-        let result = extract_zip(&archive, &dest);
         assert!(result.is_ok());
         assert!(dest.join("hello.txt").exists());
     }

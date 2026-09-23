@@ -92,16 +92,10 @@ fn build_settings_items(app: &App) -> Vec<SettingsItem> {
     items.push(SettingsItem::Spacer);
     items.push(SettingsItem::ComponentsHeader);
     items.push(SettingsItem::ComponentInfo {
-        name: "Proton",
+        name: "Phlogiston",
         version: app.config.installed_components.proton.clone(),
     });
     items.push(SettingsItem::UninstallComponent("proton"));
-    items.push(SettingsItem::Spacer);
-    items.push(SettingsItem::ComponentInfo {
-        name: "Jadeite",
-        version: app.config.installed_components.jadeite.clone(),
-    });
-    items.push(SettingsItem::UninstallComponent("jadeite"));
     items
 }
 
@@ -963,16 +957,14 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
             )),
             SettingsItem::ComponentInfo { name, version } => {
                 let ver = version.as_deref().unwrap_or("not installed");
-                let color = if *name == "Proton" { SUCCESS } else { MAGENTA };
                 Line::from(vec![
-                    Span::styled(format!("  {}  ", name), Style::default().fg(color)),
+                    Span::styled(format!("  {}  ", name), Style::default().fg(SUCCESS)),
                     Span::styled(ver, Style::default().fg(TEXT_MUTED)),
                 ])
             }
             SettingsItem::UninstallComponent(name) => {
                 let installed = match *name {
                     "proton" => app.config.installed_components.proton.is_some(),
-                    "jadeite" => app.config.installed_components.jadeite.is_some(),
                     _ => false,
                 };
                 if !installed {

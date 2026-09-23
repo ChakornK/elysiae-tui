@@ -55,18 +55,15 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
 
     // Sync component installation state from disk to config
     {
-        use crate::components::{proton_available, jadeite_available, read_component_tag};
+        use crate::components::{proton_available, read_component_tag};
         let data_dir = dirs::data_dir()
             .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
             .join("elysiae-tui");
         let proton_tag = read_component_tag(&data_dir, "proton")
             .or_else(|| if proton_available(&data_dir) { Some("installed".to_owned()) } else { None });
-        let jadeite_tag = read_component_tag(&data_dir, "jadeite")
-            .or_else(|| if jadeite_available(&data_dir) { Some("installed".to_owned()) } else { None });
         let cv = &mut app.config.installed_components;
-        if cv.proton != proton_tag || cv.jadeite != jadeite_tag {
+        if cv.proton != proton_tag {
             cv.proton = proton_tag;
-            cv.jadeite = jadeite_tag;
             let _ = app.config.save();
         }
     }
