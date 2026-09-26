@@ -56,11 +56,6 @@ impl GameId {
             GameId::Nap => "ZenlessZoneZero.exe",
         }
     }
-
-    /// Whether this game requires Jadeite for launching.
-    pub fn needs_jadeite(self) -> bool {
-        matches!(self, GameId::Hkrpg)
-    }
 }
 
 impl fmt::Display for GameId {

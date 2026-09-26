@@ -430,7 +430,6 @@ impl App {
         // Remove partial component archives so next install starts clean
         let data_dir = crate::config::app_data_dir();
         let _ = std::fs::remove_file(data_dir.join("proton.archive"));
-        let _ = std::fs::remove_file(data_dir.join("jadeite.archive"));
     }
 
     /// Dismisses the current error message.
@@ -450,12 +449,9 @@ impl App {
             .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
             .join("elysiae-tui");
         let proton = read_component_tag(&data_dir, "proton");
-        let jadeite = read_component_tag(&data_dir, "jadeite");
         let cv = &mut self.config.installed_components;
-        let changed = cv.proton != proton || cv.jadeite != jadeite;
-        if changed {
+        if cv.proton != proton {
             cv.proton = proton;
-            cv.jadeite = jadeite;
             let _ = self.config.save();
         }
     }

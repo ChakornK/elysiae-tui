@@ -74,7 +74,7 @@ flowchart TD
     ReadTag --> CheckExe[Check exe exists]
     CheckExe --> CheckState[Check state file and chunks dir]
     CheckState --> DeriveState[Set installed_tag and has_resume]
-    DeriveState --> SyncComponents[Read proton.tag and jadeite.tag from disk]
+    DeriveState --> SyncComponents[Read proton.tag from disk]
     SyncComponents --> LoadCache[Load quadrant background cache]
     LoadCache --> SpawnBG[Spawn: sync and encode background images]
     SpawnBG --> SpawnUpdate[Spawn: check updates for installed games]
@@ -268,13 +268,10 @@ The modal closes before file operations begin. Removal and addition run as indep
 flowchart TD
     Trigger([User triggers download / update / preinstall]) --> SetActive[Set app.download = ActiveDownload]
     SetActive --> Spawn[Spawn async operation task]
-    Spawn --> EnsureProton[Ensure Proton installed and current]
+    Spawn --> EnsureProton[Ensure Phlogiston installed and current]
     EnsureProton --> CancelCheck{Cancelled?}
     CancelCheck -->|Yes| Abort([Abort, clean up archives])
-    CancelCheck -->|No| NeedsJadeite{Game requires Jadeite?}
-    NeedsJadeite -->|Yes| EnsureJadeite[Ensure Jadeite installed and current]
-    NeedsJadeite -->|No| FetchManifest
-    EnsureJadeite --> FetchManifest[Fetch manifest from Sophon API]
+    CancelCheck -->|No| FetchManifest[Fetch manifest from Sophon API]
     FetchManifest --> BuildResume[Build resume context]
     BuildResume --> HashMatch{Manifest hash matches state file?}
     HashMatch -->|Yes| ResumeChunks[Load previous chunk progress]
@@ -294,8 +291,6 @@ flowchart TD
 
 A new download cancels any in-progress download before starting. State saver writes progress after each chunk batch (logs one warning per failure streak, resets on recovery). On non-cancel error: the spawn layer sends Error then Finished. On cancellation: the spawn layer sends nothing (the cancel UI flow already cleared `app.download`). The state file stays on disk for resume.
 
-Honkai: Star Rail is the one game requiring Jadeite. The cancellation check runs between Proton and Jadeite even if the game doesn't need Jadeite.
-
 ---
 
 ## 11. Component Installation
@@ -304,26 +299,22 @@ The availability check and version comparison happen at the call site (Section 1
 
 ```mermaid
 flowchart TD
-    Start([Install component]) --> FetchMeta[Fetch metadata JSON from aedes API]
-    FetchMeta --> ResolveArch[Resolve download URL for host arch]
-    ResolveArch --> Preflight{tar or unzip installed?}
+    Start([Install Phlogiston]) --> FetchMeta[Fetch metadata JSON from Aedes API]
+    FetchMeta --> ResolveArch[Resolve download URL for host architecture]
+    ResolveArch --> Preflight{tar installed?}
     Preflight -->|No| Fail([Error: missing extraction tool])
     Preflight -->|Yes| Download[Stream download with progress]
     Download --> VerifySize{Content-Length matches?}
     VerifySize -->|No| DeletePartial[Delete partial archive]
-    VerifySize -->|Yes| VerifyHash[Compute MD5 hash]
+    VerifySize -->|Yes| VerifyHash[Compute SHA-256 checksum]
     DeletePartial --> FailSize([Error: size mismatch])
-    VerifyHash --> HashOK{Hash matches?}
+    VerifyHash --> HashOK{Checksum matches?}
     HashOK -->|No| DeleteCorrupt[Delete corrupt archive]
-    HashOK -->|Yes| Extract{Component type?}
-    DeleteCorrupt --> FailHash([Error: hash mismatch])
-    Extract -->|Proton| TarExtract[tar xzf --strip-components=1]
-    Extract -->|Jadeite| UnzipExtract[unzip -o into jadeite dir]
+    HashOK -->|Yes| TarExtract[tar xzf --strip-components=1]
+    DeleteCorrupt --> FailHash([Error: checksum mismatch])
     TarExtract --> PostProton[Create proton-data dir]
-    UnzipExtract --> PostJadeite[Run block_analytics.sh if present]
     PostProton --> CleanArchive[Delete archive file]
-    PostJadeite --> CleanArchive
-    CleanArchive --> WriteTag[Write component.tag with version]
+    CleanArchive --> WriteTag[Write proton.tag with version]
     WriteTag --> SendFinished([Return tag string to caller])
 ```
 
@@ -345,7 +336,7 @@ flowchart TD
     SetResume --> ClearDL[app.download = None]
     SetNoResume --> ClearDL
     ClearDL --> ClearReady[Clear ready_to_launch]
-    ClearReady --> CleanArchives([Remove partial proton.archive and jadeite.archive])
+    ClearReady --> CleanArchives([Remove partial proton.archive])
 ```
 
 Cancelling an update leaves the prior installation intact. State re-derives as Update Available per Section 2 (exe present, update pending). The cancelled spawned task sends no Finished event; the cancel UI flow already cleared `app.download`.
@@ -375,7 +366,7 @@ Section 10's `BuildResume` step compares the manifest hash to decide whether to 
 
 ```mermaid
 flowchart TD
-    Press([Enter on Installed game]) --> CheckComp{Proton available? Jadeite if HSR?}
+    Press([Enter on Installed game]) --> CheckComp{Phlogiston available?}
     CheckComp -->|Yes| SetReady[ready_to_launch = true]
     CheckComp -->|No| InstallComp[Start component install, launch_on_complete = true]
     InstallComp --> Progress[Progress overlay shown]
@@ -384,7 +375,7 @@ flowchart TD
     SetReady --> NextTick[Next loop tick]
     NextTick --> ClearLog[Clear launch log buffer]
     ClearLog --> SetRunning[game_running = true, launch_log_game = game]
-    SetRunning --> BuildCmd[Build command: proton run jadeite? game.exe]
+    SetRunning --> BuildCmd[Build command: proton run game.exe]
     BuildCmd --> SetEnv[Set STEAM_COMPAT_DATA_PATH, STEAM_COMPAT_CLIENT_INSTALL_PATH, __NV_DISABLE_EXPLICIT_SYNC]
     SetEnv --> SpawnProc[Spawn child process, kill_on_drop = true]
     SpawnProc --> PipeOutput[Stream stdout/stderr to log channel]
@@ -394,7 +385,7 @@ flowchart TD
     Sentinel --> ClearRunning([game_running = false])
 ```
 
-The TUI stays interactive during gameplay. Honkai: Star Rail is the one game using Jadeite.
+The TUI stays interactive during gameplay.
 
 ---
 
@@ -436,10 +427,8 @@ flowchart TD
     ConfirmC -->|Yes| GuardComp{Any download active?}
     GuardComp -->|Yes| ErrorComp([Error: cannot uninstall during download])
     GuardComp -->|No| WhichComp{Component?}
-    WhichComp -->|Proton| RemoveProton[Remove proton/ fatal, proton-data/ and proton.tag best-effort]
-    WhichComp -->|Jadeite| RemoveJadeite[Remove jadeite/ fatal, jadeite.tag best-effort]
+    WhichComp -->|Phlogiston| RemoveProton[Remove proton/ fatal, proton-data/ and proton.tag best-effort]
     RemoveProton --> ClearCompConfig[Clear config.installed_components entry]
-    RemoveJadeite --> ClearCompConfig
     ClearCompConfig --> SaveConfigComp([Save config])
 ```
 
@@ -541,7 +530,7 @@ flowchart TD
     AllNotInstalled --> NoBG[No background images cached yet]
     NoBG --> UserPicksGame[User picks game, presses Enter]
     UserPicksGame --> AssignPath[Default install path auto-assigned]
-    AssignPath --> DownloadComp[Download Proton]
+    AssignPath --> DownloadComp[Download Phlogiston]
     DownloadComp --> DownloadGame[Download game]
     DownloadGame --> Ready([Game installed, shows Launch])
 
