@@ -11,11 +11,11 @@ Supports:
 
 ## Features
 
-- Download, update, verify, and launch games through Proton
+- Download, update, verify, and launch games through Phlogiston
 - Resume interrupted downloads
 - Pre-download version patches before release
 - Manage multiple voice-over language packs per game
-- Auto-install GE-Proton and Jadeite
+- Auto-install Phlogiston, Elysiae's Proton-compatible runtime
 
 ## Usage
 
@@ -69,8 +69,7 @@ Lives at `~/.config/elysiae-tui/config.json`. Created on first run.
     }
   },
   "installed_components": {
-    "proton": "GE-Proton9-22",
-    "jadeite": "3.1.0"
+    "proton": "11-0"
   }
 }
 ```
@@ -90,8 +89,8 @@ src/
 ├── game.rs          GameId enum, display names, exe paths
 ├── operations.rs    Wraps irmin for download/update/verify
 ├── state.rs         DownloadState persistence for resume (JSON, atomic writes)
-├── components.rs    Proton + Jadeite download/extraction, arch checks
-├── launcher.rs      Game launch via Proton, env vars, log streaming
+├── components.rs    Phlogiston download/extraction and architecture checks
+├── launcher.rs      Game launch via Phlogiston, env vars, log streaming
 ├── backgrounds.rs   Background image fetch + caching
 ├── quadrant.rs      Unicode quadrant-block image encoding/rendering
 ├── transition.rs    Ripple-fade animation between backgrounds
@@ -132,4 +131,4 @@ Integration tests cover CLI arg parsing. Config roundtrips are property-tested w
 - One download runs at a time. Components auto-install before game operations.
 - Downloads are resumable. State files track manifest hash + completed chunks. If upstream changes, stale progress is discarded.
 - The TUI polls at 30fps. Progress arrives via mpsc channels. Child process stdout/stderr streams into the log view.
-- Proton binaries are verified against host architecture by reading ELF headers.
+- Phlogiston binaries are verified against host architecture by reading ELF headers.

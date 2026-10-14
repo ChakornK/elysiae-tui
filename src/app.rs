@@ -279,6 +279,13 @@ impl App {
                         if let Some(path) = gc.and_then(|c| c.install_path.as_ref()) {
                             gs.installed_tag = irmin::game_installer::read_installed_tag(path);
                         }
+                        // A finished preinstall wrote its marker on disk, so stop
+                        // offering to re-download it without waiting for a re-check.
+                        if dl.op_label == "Preinstalling..."
+                            && let Some(info) = gs.update_info.as_mut()
+                        {
+                            info.preinstall_downloaded = true;
+                        }
                     }
                 }
                 self.download = None;
@@ -307,6 +314,7 @@ impl App {
                     return;
                 }
                 dl.status_label = None;
+                dl.check_progress = None;
                 dl.download_progress = Some(DownloadPhase {
                     downloaded_bytes,
                     total_bytes,
@@ -437,7 +445,6 @@ impl App {
         // Remove partial component archives so next install starts clean
         let data_dir = crate::config::app_data_dir();
         let _ = std::fs::remove_file(data_dir.join("proton.archive"));
-        let _ = std::fs::remove_file(data_dir.join("jadeite.archive"));
     }
 
     /// Dismisses the current error message.
@@ -457,12 +464,9 @@ impl App {
             .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
             .join("elysiae-tui");
         let proton = read_component_tag(&data_dir, "proton");
-        let jadeite = read_component_tag(&data_dir, "jadeite");
         let cv = &mut self.config.installed_components;
-        let changed = cv.proton != proton || cv.jadeite != jadeite;
-        if changed {
+        if cv.proton != proton {
             cv.proton = proton;
-            cv.jadeite = jadeite;
             let _ = self.config.save();
         }
     }

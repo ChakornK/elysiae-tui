@@ -41,9 +41,6 @@ pub struct Config {
     /// Automatically download game updates on startup.
     #[serde(default = "default_true")]
     pub auto_update: bool,
-    /// Automatically download preinstall patches on startup.
-    #[serde(default = "default_true")]
-    pub auto_preload: bool,
 }
 
 fn default_true() -> bool {
@@ -106,7 +103,6 @@ pub fn lang_display_name(code: &str) -> &str {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ComponentVersions {
     pub proton: Option<String>,
-    pub jadeite: Option<String>,
 }
 
 const CURRENT_VERSION: u32 = 1;
@@ -159,12 +155,8 @@ impl Default for Config {
             version: CURRENT_VERSION,
             selected_game: GameId::Hk4e,
             games: HashMap::new(),
-            installed_components: ComponentVersions {
-                proton: None,
-                jadeite: None,
-            },
+            installed_components: ComponentVersions { proton: None },
             auto_update: true,
-            auto_preload: true,
         }
     }
 }
@@ -226,15 +218,13 @@ mod tests {
             arb_game_id(),
             proptest::collection::hash_map(arb_game_id(), arb_game_config(), 0..=4),
             proptest::option::of("[a-z0-9-]{1,10}"),
-            proptest::option::of("[a-z0-9-]{1,10}"),
         )
-            .prop_map(|(selected, games, proton, jadeite)| Config {
+            .prop_map(|(selected, games, proton)| Config {
                 version: CURRENT_VERSION,
                 selected_game: selected,
                 games,
-                installed_components: ComponentVersions { proton, jadeite },
+                installed_components: ComponentVersions { proton },
                 auto_update: true,
-                auto_preload: true,
             })
     }
 
