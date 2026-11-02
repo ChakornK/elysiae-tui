@@ -7,12 +7,19 @@ use tokio::sync::mpsc::Sender;
 /// Progress events for component downloads.
 #[derive(Debug, Clone)]
 pub enum ComponentProgress {
-    Downloading { downloaded_bytes: u64, total_bytes: u64 },
+    Downloading {
+        downloaded_bytes: u64,
+        total_bytes: u64,
+    },
     Extracting,
     #[allow(dead_code)]
-    Finished { tag: String },
+    Finished {
+        tag: String,
+    },
     #[allow(dead_code)]
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 #[derive(Debug)]
@@ -31,12 +38,6 @@ struct AedesComponentData {
 
 #[derive(Debug, Deserialize)]
 struct AedesDownloads {
-    amd64: AedesDownload,
-    aarch64: AedesDownload,
-}
-
-#[derive(Debug, Deserialize)]
-struct AedesDownload {
     url: String,
     checksum: String,
 }
@@ -78,19 +79,15 @@ fn select_phlogiston_download(
     data: AedesComponentData,
     arch: &str,
 ) -> Result<ModuleData, ComponentError> {
-    let download = match arch {
-        "x86_64" => data.download.amd64,
-        "aarch64" => data.download.aarch64,
-        _ => {
-            return Err(ComponentError::Other(format!(
-                "unsupported component architecture: {arch}"
-            )));
-        }
-    };
+    if !matches!(arch, "x86_64" | "aarch64") {
+        return Err(ComponentError::Other(format!(
+            "unsupported component architecture: {arch}"
+        )));
+    }
 
     Ok(ModuleData {
-        download_url: download.url,
-        checksum: download.checksum,
+        download_url: data.download.url,
+        checksum: data.download.checksum,
         tag: data.tag,
     })
 }
@@ -259,10 +256,7 @@ pub fn read_component_tag(data_dir: &std::path::Path, name: &str) -> Option<Stri
 /// Checks whether Phlogiston is outdated by comparing local and remote tags.
 /// Returns `true` if an update is available (remote tag differs from installed tag).
 /// Returns `false` if up-to-date or if the check fails (network error, etc.).
-pub async fn proton_needs_update(
-    client: &reqwest::Client,
-    data_dir: &std::path::Path,
-) -> bool {
+pub async fn proton_needs_update(client: &reqwest::Client, data_dir: &std::path::Path) -> bool {
     let installed_tag = match read_component_tag(data_dir, "proton") {
         Some(tag) => tag,
         None => return false, // Not installed — handled by availability checks
@@ -314,14 +308,11 @@ fn is_correct_arch(path: &std::path::Path) -> bool {
     match std::env::consts::ARCH {
         "x86_64" => machine == 62,   // EM_X86_64
         "aarch64" => machine == 183, // EM_AARCH64
-        _ => true, // Unknown arch — assume OK
+        _ => true,                   // Unknown arch — assume OK
     }
 }
 
-fn extract_tar_gz(
-    archive: &std::path::Path,
-    dest: &std::path::Path,
-) -> Result<(), ComponentError> {
+fn extract_tar_gz(archive: &std::path::Path, dest: &std::path::Path) -> Result<(), ComponentError> {
     use std::process::{Command, Stdio};
     let status = Command::new("tar")
         .args([
@@ -355,14 +346,8 @@ mod tests {
             r#"{
                 "tag": "11-0",
                 "download": {
-                    "amd64": {
-                        "url": "https://example.com/phlogiston-x86_64.tar.gz",
-                        "checksum": "amd64-checksum"
-                    },
-                    "aarch64": {
-                        "url": "https://example.com/phlogiston-aarch64.tar.gz",
-                        "checksum": "aarch64-checksum"
-                    }
+                    "url": "https://example.com/phlogiston-x86_64.tar.gz",
+                    "checksum": "amd64-checksum"
                 },
                 "prerelease": false
             }"#,
@@ -390,8 +375,19 @@ mod tests {
     }
 
     #[test]
-    fn selects_aarch64_phlogiston_download_for_aarch64() {
-        let module = select_phlogiston_download(phlogiston_metadata(), "aarch64").unwrap();
+    fn parses_aarch64_phlogiston_response_for_requested_architecture() {
+        let data: AedesComponentData = serde_json::from_str(
+            r#"{
+                "tag": "11-0",
+                "download": {
+                    "url": "https://example.com/phlogiston-aarch64.tar.gz",
+                    "checksum": "aarch64-checksum"
+                },
+                "prerelease": false
+            }"#,
+        )
+        .unwrap();
+        let module = select_phlogiston_download(data, "aarch64").unwrap();
         assert_eq!(
             module.download_url,
             "https://example.com/phlogiston-aarch64.tar.gz"
@@ -440,9 +436,15 @@ mod tests {
         let proton = tmp.path().join("proton");
         fs::create_dir_all(proton.join("files").join("bin")).unwrap();
         // Write a fake ELF with correct arch header
-        let mut elf = vec![0x7f, b'E', b'L', b'F', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let mut elf = vec![
+            0x7f, b'E', b'L', b'F', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
         // e_machine at offset 18: EM_X86_64=62 or EM_AARCH64=183
-        let machine: u16 = if std::env::consts::ARCH == "aarch64" { 183 } else { 62 };
+        let machine: u16 = if std::env::consts::ARCH == "aarch64" {
+            183
+        } else {
+            62
+        };
         elf.extend_from_slice(&machine.to_le_bytes());
         fs::write(proton.join("files").join("bin").join("wine"), &elf).unwrap();
         fs::write(proton.join("proton"), "script").unwrap();
@@ -459,7 +461,12 @@ mod tests {
         fs::create_dir_all(&dest).unwrap();
         let result = extract_tar_gz(&archive, &dest);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("tar extraction failed"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("tar extraction failed")
+        );
     }
 
     #[test]
@@ -474,7 +481,13 @@ mod tests {
         fs::create_dir_all(&inner_dir).unwrap();
         fs::write(inner_dir.join("hello.txt"), "world").unwrap();
         let status = std::process::Command::new("tar")
-            .args(["czf", archive.to_str().unwrap(), "-C", tmp.path().to_str().unwrap(), "inner"])
+            .args([
+                "czf",
+                archive.to_str().unwrap(),
+                "-C",
+                tmp.path().to_str().unwrap(),
+                "inner",
+            ])
             .status()
             .unwrap();
         assert!(status.success());
