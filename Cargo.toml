@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.92.0"
 
 [dependencies]
-irmin = { git = "https://github.com/elysiae-project/irmin", rev = "72ce4dc" }
+irmin = { git = "https://github.com/elysiae-project/irmin", branch = "main", package = "irmin_rs" }
 ratatui = "0.30.2"
 image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg"] }
 crossterm = "0.29.0"
