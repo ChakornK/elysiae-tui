@@ -460,9 +460,7 @@ impl App {
     /// Reads component tag files and saves to config if changed.
     fn sync_component_versions(&mut self) {
         use crate::components::read_component_tag;
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-            .join("elysiae-tui");
+        let data_dir = crate::config::app_data_dir();
         let proton = read_component_tag(&data_dir, "proton");
         let cv = &mut self.config.installed_components;
         if cv.proton != proton {

@@ -78,9 +78,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     // Sync component installation state from disk to config
     {
         use crate::components::{proton_available, read_component_tag};
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-            .join("elysiae-tui");
+        let data_dir = crate::config::app_data_dir();
         let proton_tag = read_component_tag(&data_dir, "proton")
             .or_else(|| if proton_available(&data_dir) { Some("installed".to_owned()) } else { None });
         let cv = &mut app.config.installed_components;
@@ -549,17 +547,11 @@ fn ensure_previews(backgrounds: &Backgrounds) {
 }
 
 fn bg_cache_dir() -> std::path::PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| crate::config::fallback_home_join(".cache"))
-        .join("elysiae-tui")
-        .join("backgrounds")
+    crate::config::app_cache_dir().join("backgrounds")
 }
 
 fn quadrant_cache_dir() -> std::path::PathBuf {
-    dirs::cache_dir()
-        .unwrap_or_else(|| crate::config::fallback_home_join(".cache"))
-        .join("elysiae-tui")
-        .join("quadrant")
+    crate::config::app_cache_dir().join("quadrant")
 }
 
 #[cfg(test)]

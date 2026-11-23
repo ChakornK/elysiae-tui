@@ -171,9 +171,7 @@ pub fn launch_game(
         return Ok(());
     };
 
-    let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-        .join("elysiae-tui");
+    let data_dir = crate::config::app_data_dir();
     let launcher = crate::launcher::Launcher::new(data_dir);
 
     app.launch_log.clear();
@@ -197,9 +195,7 @@ pub fn prepare_and_launch(
     progress_tx: &Sender<SophonProgress>,
 ) {
     let game = app.active_game;
-    let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-        .join("elysiae-tui");
+    let data_dir = crate::config::app_data_dir();
 
     use crate::components::proton_available;
     let needs_proton = !proton_available(&data_dir);
@@ -248,9 +244,7 @@ fn spawn_operation(
 ) {
     let client = client.clone();
     tokio::spawn(async move {
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-            .join("elysiae-tui");
+        let data_dir = crate::config::app_data_dir();
 
         // Auto-install components before any download operation
         if matches!(op, Op::Download | Op::Update | Op::Preinstall)
@@ -414,11 +408,7 @@ async fn install_component_with_progress(
 }
 
 fn default_install_path(game: GameId) -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-        .join("elysiae-tui")
-        .join("games")
-        .join(game.as_str())
+    crate::config::app_data_dir().join("games").join(game.as_str())
 }
 
 /// Removes a game's installation directory and clears associated state.

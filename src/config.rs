@@ -8,7 +8,7 @@ use crate::game::GameId;
 
 /// Expands a home-relative subpath using the actual HOME directory.
 /// Falls back to /tmp/elysiae-tui if HOME is unset.
-pub(crate) fn fallback_home_join(subpath: &str) -> PathBuf {
+fn fallback_home_join(subpath: &str) -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("/tmp/elysiae-tui"))
         .join(subpath)
@@ -18,6 +18,13 @@ pub(crate) fn fallback_home_join(subpath: &str) -> PathBuf {
 pub fn app_data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| fallback_home_join(".local/share"))
+        .join("elysiae-tui")
+}
+
+/// Returns the application cache directory (`{XDG_CACHE_HOME}/elysiae-tui`).
+pub fn app_cache_dir() -> PathBuf {
+    dirs::cache_dir()
+        .unwrap_or_else(|| fallback_home_join(".cache"))
         .join("elysiae-tui")
 }
 

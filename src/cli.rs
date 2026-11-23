@@ -219,9 +219,7 @@ pub async fn run_cli(cmd: Commands, config: &mut Config) -> Result<(), Box<dyn s
             let gc = config.game_config(game).clone();
             let install_path = gc.install_path.as_ref().ok_or("no install path configured for this game")?;
 
-            let data_dir = dirs::data_dir()
-                .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-                .join("elysiae-tui");
+            let data_dir = crate::config::app_data_dir();
 
             let launcher = Launcher::new(data_dir);
             let (log_tx, _log_rx) = tokio::sync::mpsc::channel(16);
