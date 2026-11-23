@@ -181,7 +181,7 @@ pub struct App {
     pub backgrounds: HashMap<GameId, QuadrantImage>,
     pub bg_transition: Option<BgTransition>,
     pub ready_to_launch: bool,
-    /// Game launch log lines (ring buffer, max 1000)
+    /// Game launch log lines (ring buffer, capped at `MAX_LOG_LINES`)
     pub launch_log: VecDeque<String>,
     /// Scroll offset for launch log display
     pub launch_log_scroll: usize,
@@ -190,6 +190,12 @@ pub struct App {
     /// Which game the log belongs to
     pub launch_log_game: Option<GameId>,
 }
+
+/// Number of launch log lines shown at once in the log view.
+pub const VISIBLE_LOG_LINES: usize = 8;
+
+/// Maximum launch log lines kept in memory.
+pub const MAX_LOG_LINES: usize = 1000;
 
 impl App {
     /// Creates a new App with the given config. Starts on the game list view.

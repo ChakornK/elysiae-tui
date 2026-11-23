@@ -849,7 +849,7 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
 /// Renders game launch log in the bottom-left (same position as progress overlay).
 fn draw_launch_log(frame: &mut Frame, app: &App, area: Rect) {
     let bg_img = app.backgrounds.get(&app.selected_game());
-    let visible_lines = 8u16;
+    let visible_lines = crate::app::VISIBLE_LOG_LINES as u16;
     let rows = visible_lines + 3; // header + padding
 
     let overlay_width = PROGRESS_MAX_WIDTH.min(area.width.saturating_sub(EDGE_PAD_H * 2));

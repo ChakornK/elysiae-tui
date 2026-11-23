@@ -35,112 +35,15 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let (log_tx, mut log_rx) = mpsc::channel::<String>(256);
     let mut term_size = crossterm::terminal::size().unwrap_or((80, 24));
 
-    // Load installed tags and resume state
-    let data_dir_for_state = crate::config::app_data_dir();
-    let mut config_dirty = false;
-    for game in GameId::ALL {
-        let gc = app.config.game_config(game).clone();
-        let vo_lang = gc.primary_vo_lang().to_owned();
-        let tag = gc.install_path.as_ref()
-            .and_then(|p| irmin::game_installer::read_installed_tag(p));
-        let installed = tag.is_some();
-        let has_resume = if installed {
-            false
-        } else {
-            crate::state::resumable_state(
-                &data_dir_for_state,
-                game.as_str(),
-                gc.install_path.as_deref(),
-                &vo_lang,
-            )
-            .map(|state| {
-                // No install path configured — adopt the state's output_path so
-                // the resumable state is never silently discarded by a fresh
-                // download targeting a different (default) path.
-                if gc.install_path.is_none() {
-                    app.config.game_config(game).install_path =
-                        Some(std::path::PathBuf::from(&state.output_path));
-                    config_dirty = true;
-                }
-            })
-            .is_some()
-        };
-        app.games.insert(game, crate::app::GameStatus {
-            installed_tag: tag,
-            update_info: None,
-            has_resume,
-        });
-    }
-    if config_dirty {
-        let _ = app.config.save();
-    }
+    scan_game_state(&mut app);
+    sync_component_state(&mut app);
 
-    // Sync component installation state from disk to config
-    {
-        use crate::components::{proton_available, read_component_tag};
-        let data_dir = crate::config::app_data_dir();
-        let proton_tag = read_component_tag(&data_dir, "proton")
-            .or_else(|| if proton_available(&data_dir) { Some("installed".to_owned()) } else { None });
-        let cv = &mut app.config.installed_components;
-        if cv.proton != proton_tag {
-            cv.proton = proton_tag;
-            let _ = app.config.save();
-        }
-    }
-
-    // Try loading backgrounds from quadrant cache (instant, <1ms)
+    // Load pre-encoded backgrounds from the quadrant cache
     load_from_cache(&mut app, term_size);
 
-    // Spawn background sync + encode for any missing games
-    let cache_dir = bg_cache_dir();
-    let qcache_dir = quadrant_cache_dir();
-    // Pair: (fade_on_arrival, images). Startup sends `true` to fade in from
-    // dark; a resize re-encode sends `false` so the image just reflows in place.
-    let (bg_tx, mut bg_rx) = mpsc::channel::<(bool, HashMap<GameId, QuadrantImage>)>(4);
-    let bg_client = client.clone();
-    let bg_term_size = term_size;
-    let startup_tx = bg_tx.clone();
-    tokio::spawn(async move {
-        let mut backgrounds = Backgrounds::new(cache_dir);
-        backgrounds.sync(&bg_client).await;
-        let encoded = tokio::task::spawn_blocking(move || {
-            // Generate 480×270 raw-RGB previews so the encode step only reads
-            // a small file instead of decoding the full ~4 MB webp.
-            ensure_previews(&backgrounds);
-            encode_missing(&backgrounds, bg_term_size, &qcache_dir)
-        }).await.unwrap_or_default();
-        let _ = startup_tx.send((true, encoded)).await;
-    });
-
-    // Spawn background update check for all installed games. The channel is
-    // reused after startup: finishing a download op sends a fresh batch so the
-    // UI's update/preinstall state never goes stale mid-session.
-    let (update_tx, mut update_rx) = mpsc::channel::<HashMap<GameId, UpdateInfo>>(4);
-    let update_tx_clone = update_tx.clone();
-    let update_client = client.clone();
-    let update_configs: Vec<_> = GameId::ALL
-        .iter()
-        .filter_map(|&game| {
-            let gc = app.config.game_config(game).clone();
-            let path = gc.install_path.as_ref()?.to_string_lossy().to_string();
-            // Only check games that are actually installed
-            if app.games.get(&game).and_then(|gs| gs.installed_tag.as_ref()).is_some() {
-                Some((game, gc.primary_vo_lang().to_owned(), path))
-            } else {
-                None
-            }
-        })
-        .collect();
-    tokio::spawn(async move {
-        let ops = Operations::new(update_client, crate::config::app_data_dir());
-        let mut results = HashMap::new();
-        for (game, vo_lang, path) in update_configs {
-            if let Ok(info) = ops.check_update(game, &vo_lang, &path).await {
-                results.insert(game, info);
-            }
-        }
-        let _ = update_tx_clone.send(results).await;
-    });
+    // Spawn background image-sync and update-check tasks
+    let BackgroundTasks { bg_tx, mut bg_rx, update_tx, mut update_rx } =
+        spawn_background_tasks(&mut app, &client, term_size);
 
     // Main event loop — TUI is interactive immediately
     let mut auto_start_done = false;
@@ -196,9 +99,7 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        if event::poll(Duration::from_millis(33))?
-            && let Event::Key(key) = event::read()?
-        {
+        if let Some(key) = poll_key_event()? {
             if key.kind != KeyEventKind::Press {
                 continue;
             }
@@ -211,184 +112,33 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
             }
 
             // Download controls (p/c) bypass the modal stack
-            if app.download.is_some() && matches!(key.code,
-                crossterm::event::KeyCode::Char('p') | crossterm::event::KeyCode::Char('c'))
+            if app.download.is_some()
+                && matches!(
+                    key.code,
+                    crossterm::event::KeyCode::Char('p') | crossterm::event::KeyCode::Char('c')
+                )
             {
                 input::handle_key(&mut app, key.code, &client, &progress_tx, &mut terminal).await?;
                 continue;
             }
 
-            if app.error_message.is_some() {
-                app.dismiss_error();
-                continue;
-            }
-            if app.status_message.is_some() {
-                app.dismiss_status();
+            if input::dispatch_modal_key(&mut app, key.code, &client, &progress_tx) {
                 continue;
             }
 
-            // VO manager modal: handles input before dialog
-            if app.vo_modal.is_some() {
-                let lang_count = crate::config::VALID_LANGS.len();
-                match key.code {
-                    crossterm::event::KeyCode::Up => {
-                        if let Some(ref mut m) = app.vo_modal {
-                            m.cursor = if m.cursor == 0 { lang_count - 1 } else { m.cursor - 1 };
-                        }
-                    }
-                    crossterm::event::KeyCode::Down => {
-                        if let Some(ref mut m) = app.vo_modal {
-                            m.cursor = if m.cursor >= lang_count - 1 { 0 } else { m.cursor + 1 };
-                        }
-                    }
-                    crossterm::event::KeyCode::Char(' ') => {
-                        if let Some(ref mut m) = app.vo_modal {
-                            m.toggle_current();
-                        }
-                    }
-                    crossterm::event::KeyCode::Enter => {
-                        let modal = app.vo_modal.take().unwrap();
-                        let new_langs = modal.selected_langs();
-                        let game = modal.game;
-                        let old_langs = app.config.game_config(game).vo_langs.clone();
-                        app.config.game_config(game).vo_langs = new_langs.clone();
-                        let _ = app.config.save();
-                        actions::apply_vo_changes(
-                            &mut app, &client, &progress_tx, game, &new_langs, &old_langs,
-                        );
-                    }
-                    crossterm::event::KeyCode::Esc => {
-                        app.vo_modal = None;
-                    }
-                    _ => {}
-                }
-                continue;
-            }
-
-            // Confirm dialog: arrow keys move selection, Enter confirms, Esc dismisses
-            if app.dialog.is_some() {
-                use crate::app::DialogKind;
-                match key.code {
-                    crossterm::event::KeyCode::Left => {
-                        if let Some(ref mut d) = app.dialog { d.select_left(); }
-                    }
-                    crossterm::event::KeyCode::Right => {
-                        if let Some(ref mut d) = app.dialog { d.select_right(); }
-                    }
-                    crossterm::event::KeyCode::Char('y') | crossterm::event::KeyCode::Enter => {
-                        let dialog = app.dialog.take().unwrap();
-                        if key.code == crossterm::event::KeyCode::Char('y') || dialog.confirmed() {
-                            match dialog.kind {
-                                DialogKind::CancelDownload => app.finish_download(),
-                                DialogKind::UninstallGame(game) => {
-                                    if let Err(e) = actions::uninstall_game(&mut app, game) {
-                                        app.error_message = Some(e);
-                                    }
-                                }
-                                DialogKind::UninstallComponent(ref name) => {
-                                    if let Err(e) = actions::uninstall_component(&mut app, name) {
-                                        app.error_message = Some(e);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    crossterm::event::KeyCode::Esc | crossterm::event::KeyCode::Char('n') => {
-                        app.dialog = None;
-                    }
-                    _ => {}
-                }
-                continue;
-            }
-
-            // Any key dismisses help overlay
-            if app.show_help {
-                app.show_help = false;
-                continue;
-            }
-
-            input::handle_key(
-                &mut app,
-                key.code,
-                &client,
-                &progress_tx,
-                &mut terminal,
-            )
-            .await?;
+            input::handle_key(&mut app, key.code, &client, &progress_tx, &mut terminal).await?;
         }
 
-        // Re-encode on terminal resize
-        if let Ok(new_size) = crossterm::terminal::size()
-            && new_size != term_size
-        {
+        // Re-encode backgrounds on terminal resize
+        if let Ok(new_size) = crossterm::terminal::size() && new_size != term_size {
             term_size = new_size;
-            app.backgrounds.clear();
-            app.bg_transition = None;
-            load_from_cache(&mut app, term_size);
-
-            // Any backgrounds not already cached for the new size are encoded
-            // in the background and delivered through the same channel.
-            let cache_dir = bg_cache_dir();
-            let qcache_dir = quadrant_cache_dir();
-            let resize_tx = bg_tx.clone();
-            let (cols, rows) = term_size;
-            tokio::spawn(async move {
-                let backgrounds = Backgrounds::new(cache_dir);
-                let encoded = tokio::task::spawn_blocking(move || {
-                    ensure_previews(&backgrounds);
-                    encode_missing(&backgrounds, (cols, rows), &qcache_dir)
-                }).await.unwrap_or_default();
-                let _ = resize_tx.send((false, encoded)).await;
-            });
+            respawn_bg_encode(&mut app, new_size, &bg_tx);
         }
 
-        while let Ok(progress) = progress_rx.try_recv() {
-            // A finished download op may have changed on-disk state (preinstall
-            // marker written, update applied) — schedule a state refresh so the
-            // UI stops offering the completed op.
-            let refresh_game = if matches!(progress, SophonProgress::Finished)
-                && let Some(ref dl) = app.download
-            {
-                Some(dl.game_id)
-            } else {
-                None
-            };
-            app.update_progress(progress);
-            if let Some(game) = refresh_game {
-                let gc = app.config.game_config(game).clone();
-                if let Some(path) = gc.install_path.as_ref() {
-                    let update_tx = update_tx.clone();
-                    let update_client = client.clone();
-                    let vo_lang = gc.primary_vo_lang().to_owned();
-                    let path = path.to_string_lossy().to_string();
-                    tokio::spawn(async move {
-                        let ops = Operations::new(update_client, crate::config::app_data_dir());
-                        if let Ok(info) = ops.check_update(game, &vo_lang, &path).await {
-                            let mut results = HashMap::new();
-                            results.insert(game, info);
-                            let _ = update_tx.send(results).await;
-                        }
-                    });
-                }
-            }
-        }
+        drain_progress(&mut app, &mut progress_rx, &client, &update_tx);
 
         // Receive game launch log lines
-        while let Ok(line) = log_rx.try_recv() {
-            if line == "\x00__PROCESS_EXIT__" {
-                app.game_running = false;
-                continue;
-            }
-            app.launch_log.push_back(line);
-            if app.launch_log.len() > 1000 {
-                app.launch_log.pop_front();
-            }
-            // Auto-scroll to bottom
-            let visible = 8usize;
-            if app.launch_log.len() > visible {
-                app.launch_log_scroll = app.launch_log.len() - visible;
-            }
-        }
+        drain_launch_log(&mut app, &mut log_rx);
 
         // Launch game when components are ready
         if app.ready_to_launch {
@@ -407,6 +157,222 @@ pub async fn run(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let _ = app.config.save();
 
     Ok(())
+}
+
+/// Reads each game's install tag and resume state into `app.games`.
+///
+/// When a game has resume state but no configured install path, the state's
+/// `output_path` is adopted so a fresh download targeting the default path
+/// never silently discards the resumable chunks.
+fn scan_game_state(app: &mut App) {
+    let data_dir = crate::config::app_data_dir();
+    let mut config_dirty = false;
+    for game in GameId::ALL {
+        let gc = app.config.game_config(game).clone();
+        let vo_lang = gc.primary_vo_lang().to_owned();
+        let tag = gc
+            .install_path
+            .as_ref()
+            .and_then(|p| irmin::game_installer::read_installed_tag(p));
+        let has_resume = tag.is_none()
+            && crate::state::resumable_state(&data_dir, game.as_str(), gc.install_path.as_deref(), &vo_lang)
+                .map(|state| {
+                    if gc.install_path.is_none() {
+                        app.config.game_config(game).install_path =
+                            Some(std::path::PathBuf::from(&state.output_path));
+                        config_dirty = true;
+                    }
+                })
+                .is_some();
+        app.games.insert(
+            game,
+            crate::app::GameStatus { installed_tag: tag, update_info: None, has_resume },
+        );
+    }
+    if config_dirty {
+        let _ = app.config.save();
+    }
+}
+
+/// Syncs the installed Phlogiston version from disk into config.
+fn sync_component_state(app: &mut App) {
+    use crate::components::{proton_available, read_component_tag};
+    let data_dir = crate::config::app_data_dir();
+    let proton_tag = read_component_tag(&data_dir, "proton")
+        .or_else(|| if proton_available(&data_dir) { Some("installed".to_owned()) } else { None });
+    let cv = &mut app.config.installed_components;
+    if cv.proton != proton_tag {
+        cv.proton = proton_tag;
+        let _ = app.config.save();
+    }
+}
+
+type BgMessage = (bool, HashMap<GameId, QuadrantImage>);
+
+/// Bundles the send/receive ends of the startup background tasks.
+///
+/// The background senders are kept by the event loop so it can re-encode
+/// backgrounds on resize and re-check updates after a download finishes.
+struct BackgroundTasks {
+    bg_tx: mpsc::Sender<BgMessage>,
+    bg_rx: mpsc::Receiver<BgMessage>,
+    update_tx: mpsc::Sender<HashMap<GameId, UpdateInfo>>,
+    update_rx: mpsc::Receiver<HashMap<GameId, UpdateInfo>>,
+}
+
+/// Spawns the startup background tasks and returns their channel ends.
+///
+/// The background task syncs remote background images and encodes any that are
+/// missing from the quadrant cache. The update task checks every installed game
+/// for updates.
+fn spawn_background_tasks(
+    app: &mut App,
+    client: &reqwest::Client,
+    term_size: (u16, u16),
+) -> BackgroundTasks {
+    let (bg_tx, bg_rx) = mpsc::channel::<BgMessage>(4);
+    let (update_tx, update_rx) = mpsc::channel::<HashMap<GameId, UpdateInfo>>(4);
+
+    let cache_dir = bg_cache_dir();
+    let qcache_dir = quadrant_cache_dir();
+    // Pair: (fade_on_arrival, images). Startup sends `true` to fade in from
+    // dark; a resize re-encode sends `false` so the image just reflows in place.
+    let startup_tx = bg_tx.clone();
+    let startup_client = client.clone();
+    tokio::spawn(async move {
+        let mut backgrounds = Backgrounds::new(cache_dir);
+        backgrounds.sync(&startup_client).await;
+        let encoded = tokio::task::spawn_blocking(move || {
+            // Generate 480×270 raw-RGB previews so the encode step only reads
+            // a small file instead of decoding the full ~4 MB webp.
+            ensure_previews(&backgrounds);
+            encode_missing(&backgrounds, term_size, &qcache_dir)
+        })
+        .await
+        .unwrap_or_default();
+        let _ = startup_tx.send((true, encoded)).await;
+    });
+
+    // Only installed games with a configured path are update-checked.
+    let update_configs: Vec<_> = GameId::ALL
+        .iter()
+        .filter_map(|&game| {
+            let gc = app.config.game_config(game).clone();
+            let path = gc.install_path.as_ref()?.to_string_lossy().to_string();
+            let installed = app
+                .games
+                .get(&game)
+                .and_then(|gs| gs.installed_tag.as_ref())
+                .is_some();
+            installed.then_some((game, gc.primary_vo_lang().to_owned(), path))
+        })
+        .collect();
+    let update_client = client.clone();
+    let update_tx_send = update_tx.clone();
+    tokio::spawn(async move {
+        let ops = Operations::new(update_client, crate::config::app_data_dir());
+        let mut results = HashMap::new();
+        for (game, vo_lang, path) in update_configs {
+            if let Ok(info) = ops.check_update(game, &vo_lang, &path).await {
+                results.insert(game, info);
+            }
+        }
+        let _ = update_tx_send.send(results).await;
+    });
+
+    BackgroundTasks { bg_tx, bg_rx, update_tx, update_rx }
+}
+
+/// Polls the terminal for a single key event, returning it if present.
+fn poll_key_event() -> io::Result<Option<crossterm::event::KeyEvent>> {
+    if event::poll(Duration::from_millis(33))? {
+        match event::read()? {
+            Event::Key(key) => Ok(Some(key)),
+            _ => Ok(None),
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// Clears cached backgrounds and spawns a background re-encode for the new
+/// terminal size. The result arrives through `bg_tx` with `fade = false` so
+/// the image reflows in place instead of crossfading.
+fn respawn_bg_encode(app: &mut App, term_size: (u16, u16), bg_tx: &mpsc::Sender<BgMessage>) {
+    app.backgrounds.clear();
+    app.bg_transition = None;
+    load_from_cache(app, term_size);
+
+    let cache_dir = bg_cache_dir();
+    let qcache_dir = quadrant_cache_dir();
+    let resize_tx = bg_tx.clone();
+    let (cols, rows) = term_size;
+    tokio::spawn(async move {
+        let backgrounds = Backgrounds::new(cache_dir);
+        let encoded = tokio::task::spawn_blocking(move || {
+            ensure_previews(&backgrounds);
+            encode_missing(&backgrounds, (cols, rows), &qcache_dir)
+        })
+        .await
+        .unwrap_or_default();
+        let _ = resize_tx.send((false, encoded)).await;
+    });
+}
+
+/// Drains download progress events into the app. A finished op may have
+/// changed on-disk state (preinstall marker written, update applied), so a
+/// fresh update check is spawned for that game.
+fn drain_progress(
+    app: &mut App,
+    progress_rx: &mut mpsc::Receiver<SophonProgress>,
+    client: &reqwest::Client,
+    update_tx: &mpsc::Sender<HashMap<GameId, UpdateInfo>>,
+) {
+    while let Ok(progress) = progress_rx.try_recv() {
+        let refresh_game = if matches!(progress, SophonProgress::Finished)
+            && let Some(ref dl) = app.download
+        {
+            Some(dl.game_id)
+        } else {
+            None
+        };
+        app.update_progress(progress);
+        if let Some(game) = refresh_game {
+            let gc = app.config.game_config(game).clone();
+            if let Some(path) = gc.install_path.as_ref() {
+                let update_tx = update_tx.clone();
+                let update_client = client.clone();
+                let vo_lang = gc.primary_vo_lang().to_owned();
+                let path = path.to_string_lossy().to_string();
+                tokio::spawn(async move {
+                    let ops = Operations::new(update_client, crate::config::app_data_dir());
+                    if let Ok(info) = ops.check_update(game, &vo_lang, &path).await {
+                        let mut results = HashMap::new();
+                        results.insert(game, info);
+                        let _ = update_tx.send(results).await;
+                    }
+                });
+            }
+        }
+    }
+}
+
+/// Drains game launch log lines into the ring buffer, auto-scrolling to the
+/// bottom. The `\x00__PROCESS_EXIT__` sentinel clears the running state.
+fn drain_launch_log(app: &mut App, log_rx: &mut mpsc::Receiver<String>) {
+    while let Ok(line) = log_rx.try_recv() {
+        if line == "\x00__PROCESS_EXIT__" {
+            app.game_running = false;
+            continue;
+        }
+        app.launch_log.push_back(line);
+        if app.launch_log.len() > crate::app::MAX_LOG_LINES {
+            app.launch_log.pop_front();
+        }
+        if app.launch_log.len() > crate::app::VISIBLE_LOG_LINES {
+            app.launch_log_scroll = app.launch_log.len() - crate::app::VISIBLE_LOG_LINES;
+        }
+    }
 }
 
 /// Loads pre-encoded quadrant caches for the current terminal size.
@@ -487,9 +453,9 @@ fn encode_missing(
 /// wide, so each quadrant grid-pixel is about half as wide as it is tall on
 /// screen (pixel aspect ratio `PAR`). The visual area aspect is therefore
 /// `out_w * PAR / out_h`; we first crop the source to that aspect (cover), then
-/// resize to the grid — the image keeps its proportions and fills the terminal.
-// ponytail: PAR fixed at 0.5 (typical monospace cell ~8×16px); raise/lower if a
-// specific font measures off and the background looks skewed.
+/// resize to the grid. The image keeps its proportions and fills the terminal.
+/// PAR is fixed at 0.5 (a typical monospace cell is ~8×16px); adjust it if a
+/// specific font measures off and the background looks skewed.
 fn cover_resize(src: &image::RgbImage, out_w: u32, out_h: u32) -> image::RgbImage {
     const PAR: f64 = 0.5;
     let target_vis = (out_w as f64) * PAR / (out_h as f64);
