@@ -346,12 +346,11 @@ async fn install_component_with_progress(
     let mgr = ComponentManager::new(client.clone(), data_dir.to_path_buf());
     let (comp_tx, mut comp_rx) = tokio::sync::mpsc::channel::<ComponentProgress>(64);
 
-    let install_task = tokio::spawn(async move { mgr.install_proton(comp_tx).await });
+    let install_task = tokio::spawn(async move { mgr.install(comp_tx).await });
 
     let mut last_bytes: u64 = 0;
     let mut last_time = std::time::Instant::now();
     let mut speed_bps: f64 = 0.0;
-    let status = status_msg.to_owned();
 
     loop {
         tokio::select! {
@@ -381,10 +380,6 @@ async fn install_component_with_progress(
                             current_plugin: "Extracting...".to_owned(),
                             total_plugins: 1,
                         }).await;
-                    }
-                    ComponentProgress::Finished { .. } => {}
-                    ComponentProgress::Error { message } => {
-                        return Err(format!("{}: {}", status, message));
                     }
                 }
             }
