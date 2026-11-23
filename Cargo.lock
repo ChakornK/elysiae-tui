@@ -1262,23 +1262,28 @@ checksum = "6a756c3fac73139e83f14c2d742155dd2b78d3ee56597b419a0579b7bdd6dd78"
 
 [[package]]
 name = "irmin_rs"
-version = "1.1.0"
-source = "git+https://github.com/elysiae-project/irmin?branch=main#367223a7bc0b1d8c20361fbd885bbd31a059c9e5"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c7e36d079238ba482eaaaa104999fd79948e8afdefe4cc27854806dd242d2d7"
 dependencies = [
+ "bytes",
  "dashmap",
  "fast-md5",
  "flate2",
  "futures-util",
+ "hashbrown 0.17.1",
  "hex",
  "libc",
  "log",
  "lz4",
+ "md5-simd",
  "prost",
  "reqwest",
  "rustc-hash",
  "serde",
  "serde_json",
  "sha2 0.11.1",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-util",
@@ -1526,6 +1531,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1525a2a28c7f4fa0fc98bb91ae755d1e2d1505079e05539e35bc876b5d65ae9"
 dependencies = [
  "regex-automata",
+]
+
+[[package]]
+name = "md5-simd"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb94d15b7bc82fd940021d3325b6ef2c0760d95f24d0f213c456d0a96dfbecfa"
+dependencies = [
+ "digest 0.11.3",
 ]
 
 [[package]]
@@ -2803,7 +2817,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
