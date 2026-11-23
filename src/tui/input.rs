@@ -73,7 +73,7 @@ async fn handle_main(
             app.launch_log_scroll = app.launch_log_scroll.saturating_sub(1);
         }
         KeyCode::Down if app.game_running && !app.launch_log.is_empty() => {
-            let max_scroll = app.launch_log.len().saturating_sub(8);
+            let max_scroll = app.launch_log.len().saturating_sub(crate::app::VISIBLE_LOG_LINES);
             if app.launch_log_scroll < max_scroll {
                 app.launch_log_scroll += 1;
             }
@@ -188,6 +188,107 @@ fn handle_settings(app: &mut App, key: KeyCode, _client: &reqwest::Client, _prog
         _ => {}
     }
     Ok(())
+}
+
+/// Handles keys while a modal or overlay is on top: error/status messages,
+/// the VO manager, the confirm dialog, or the help overlay. Returns true when
+/// the key was consumed and no view-level dispatch should run.
+pub fn dispatch_modal_key(
+    app: &mut App,
+    key: KeyCode,
+    client: &reqwest::Client,
+    progress_tx: &Sender<SophonProgress>,
+) -> bool {
+    if app.error_message.is_some() {
+        app.dismiss_error();
+        return true;
+    }
+    if app.status_message.is_some() {
+        app.dismiss_status();
+        return true;
+    }
+
+    // VO manager modal: handles input before dialog
+    if app.vo_modal.is_some() {
+        let lang_count = crate::config::VALID_LANGS.len();
+        match key {
+            KeyCode::Up => {
+                if let Some(ref mut m) = app.vo_modal {
+                    m.cursor = if m.cursor == 0 { lang_count - 1 } else { m.cursor - 1 };
+                }
+            }
+            KeyCode::Down => {
+                if let Some(ref mut m) = app.vo_modal {
+                    m.cursor = if m.cursor >= lang_count - 1 { 0 } else { m.cursor + 1 };
+                }
+            }
+            KeyCode::Char(' ') => {
+                if let Some(ref mut m) = app.vo_modal {
+                    m.toggle_current();
+                }
+            }
+            KeyCode::Enter => {
+                let modal = app.vo_modal.take().unwrap();
+                let new_langs = modal.selected_langs();
+                let game = modal.game;
+                let old_langs = app.config.game_config(game).vo_langs.clone();
+                app.config.game_config(game).vo_langs = new_langs.clone();
+                let _ = app.config.save();
+                actions::apply_vo_changes(
+                    app, client, progress_tx, game, &new_langs, &old_langs,
+                );
+            }
+            KeyCode::Esc => {
+                app.vo_modal = None;
+            }
+            _ => {}
+        }
+        return true;
+    }
+
+    // Confirm dialog: arrow keys move selection, Enter confirms, Esc dismisses
+    if app.dialog.is_some() {
+        use crate::app::DialogKind;
+        match key {
+            KeyCode::Left => {
+                if let Some(ref mut d) = app.dialog { d.select_left(); }
+            }
+            KeyCode::Right => {
+                if let Some(ref mut d) = app.dialog { d.select_right(); }
+            }
+            KeyCode::Char('y') | KeyCode::Enter => {
+                let dialog = app.dialog.take().unwrap();
+                if key == KeyCode::Char('y') || dialog.confirmed() {
+                    match dialog.kind {
+                        DialogKind::CancelDownload => app.finish_download(),
+                        DialogKind::UninstallGame(game) => {
+                            if let Err(e) = actions::uninstall_game(app, game) {
+                                app.error_message = Some(e);
+                            }
+                        }
+                        DialogKind::UninstallComponent(ref name) => {
+                            if let Err(e) = actions::uninstall_component(app, name) {
+                                app.error_message = Some(e);
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Esc | KeyCode::Char('n') => {
+                app.dialog = None;
+            }
+            _ => {}
+        }
+        return true;
+    }
+
+    // Any key dismisses help overlay
+    if app.show_help {
+        app.show_help = false;
+        return true;
+    }
+
+    false
 }
 
 fn settings_move_cursor(app: &mut App, direction: i32) {

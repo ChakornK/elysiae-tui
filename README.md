@@ -61,7 +61,6 @@ Lives at `~/.config/elysiae-tui/config.json`. Created on first run.
   "version": 1,
   "selected_game": "hk4e",
   "auto_update": true,
-  "auto_preload": true,
   "games": {
     "hk4e": {
       "vo_langs": ["en-us", "ja-jp"],
@@ -93,11 +92,11 @@ src/
 ├── launcher.rs      Game launch via Phlogiston, env vars, log streaming
 ├── backgrounds.rs   Background image fetch + caching
 ├── quadrant.rs      Unicode quadrant-block image encoding/rendering
+├── webp_fast.rs     Scaled webp decode via libwebp for fast previews
 ├── transition.rs    Ripple-fade animation between backgrounds
 ├── postinstall.rs   Plugin and channel SDK install after game ops
-├── http.rs          Size-capped streaming fetch, retry, error variants
+├── http.rs          Shared HTTP client
 ├── atomic.rs        Atomic file writes, safe dir removal, corrupt preservation
-├── disk.rs          Disk space checks
 ├── signal.rs        SIGINT/SIGTERM shutdown, second signal force-exits
 ├── ui.rs            TUI rendering: tabs, panels, overlays, settings
 └── tui/
@@ -130,5 +129,5 @@ Integration tests cover CLI arg parsing. Config roundtrips are property-tested w
 
 - One download runs at a time. Components auto-install before game operations.
 - Downloads are resumable. State files track manifest hash + completed chunks. If upstream changes, stale progress is discarded.
-- The TUI polls at 30fps. Progress arrives via mpsc channels. Child process stdout/stderr streams into the log view.
+- The TUI event loop ticks on a ~33 ms poll. Progress arrives via mpsc channels. Child process stdout/stderr streams into the log view.
 - Phlogiston binaries are verified against host architecture by reading ELF headers.

@@ -181,7 +181,7 @@ pub struct App {
     pub backgrounds: HashMap<GameId, QuadrantImage>,
     pub bg_transition: Option<BgTransition>,
     pub ready_to_launch: bool,
-    /// Game launch log lines (ring buffer, max 1000)
+    /// Game launch log lines (ring buffer, capped at `MAX_LOG_LINES`)
     pub launch_log: VecDeque<String>,
     /// Scroll offset for launch log display
     pub launch_log_scroll: usize,
@@ -190,6 +190,12 @@ pub struct App {
     /// Which game the log belongs to
     pub launch_log_game: Option<GameId>,
 }
+
+/// Number of launch log lines shown at once in the log view.
+pub const VISIBLE_LOG_LINES: usize = 8;
+
+/// Maximum launch log lines kept in memory.
+pub const MAX_LOG_LINES: usize = 1000;
 
 impl App {
     /// Creates a new App with the given config. Starts on the game list view.
@@ -460,9 +466,7 @@ impl App {
     /// Reads component tag files and saves to config if changed.
     fn sync_component_versions(&mut self) {
         use crate::components::read_component_tag;
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| crate::config::fallback_home_join(".local/share"))
-            .join("elysiae-tui");
+        let data_dir = crate::config::app_data_dir();
         let proton = read_component_tag(&data_dir, "proton");
         let cv = &mut self.config.installed_components;
         if cv.proton != proton {

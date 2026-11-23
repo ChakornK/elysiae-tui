@@ -12,14 +12,6 @@ pub enum ComponentProgress {
         total_bytes: u64,
     },
     Extracting,
-    #[allow(dead_code)]
-    Finished {
-        tag: String,
-    },
-    #[allow(dead_code)]
-    Error {
-        message: String,
-    },
 }
 
 #[derive(Debug)]
@@ -127,14 +119,8 @@ impl ComponentManager {
     }
 
     /// Downloads and installs the Proton-compatible Phlogiston runtime.
-    pub async fn install_proton(
-        &self,
-        tx: Sender<ComponentProgress>,
-    ) -> Result<String, ComponentError> {
-        self.install_component(tx).await
-    }
-
-    async fn install_component(
+    /// Returns the installed version tag.
+    pub async fn install(
         &self,
         tx: Sender<ComponentProgress>,
     ) -> Result<String, ComponentError> {
@@ -239,10 +225,9 @@ impl ComponentManager {
         let _ = std::fs::remove_file(&archive_path);
 
         let tag = module.tag.clone();
-        // Persist tag so the main thread can update config after Finished
+        // Persist tag so the main thread can read the installed version
         let tag_path = self.data_dir.join("proton.tag");
         let _ = std::fs::write(&tag_path, &tag);
-        let _ = tx.try_send(ComponentProgress::Finished { tag: tag.clone() });
         Ok(tag)
     }
 }

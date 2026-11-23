@@ -7,7 +7,7 @@ rust-version = "1.92.0"
 [dependencies]
 irmin = { version = "1.2.0", package = "irmin_rs" }
 ratatui = "0.30.2"
-image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg"] }
+image = { version = "0.25", default-features = false }
 crossterm = "0.29.0"
 tokio = { version = "1.53", features = ["rt", "rt-multi-thread", "sync", "time", "macros", "process", "io-util", "signal"] }
 reqwest = { version = "0.13.4", features = ["stream", "json"] }
@@ -17,17 +17,14 @@ serde_json = "1"
 dirs = "6"
 thiserror = "2"
 unicode-width = "0.2"
-fs2 = "0.4"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sha2 = "0.10"
-rustc-hash = "2"
 libwebp-sys = "0.14.4"
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.6"
-tikv-jemalloc-ctl = "0.6"
 
 [dev-dependencies]
 proptest = "1.11"

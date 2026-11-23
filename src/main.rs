@@ -8,7 +8,6 @@ mod backgrounds;
 mod cli;
 mod components;
 mod config;
-mod disk;
 mod game;
 mod http;
 mod launcher;
@@ -27,14 +26,7 @@ use cli::Cli;
 use config::Config;
 
 fn init_logging() {
-    let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .unwrap_or_else(|| std::path::PathBuf::from("/tmp/elysiae-tui"))
-                .join(".local/share")
-        })
-        .join("elysiae-tui")
-        .join("logs");
+    let data_dir = config::app_data_dir().join("logs");
     let _ = std::fs::create_dir_all(&data_dir);
     let file_appender = match tracing_appender::rolling::Builder::new()
         .max_log_files(3)
