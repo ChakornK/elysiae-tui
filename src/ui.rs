@@ -9,7 +9,6 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::app::{App, View};
 use crate::game::GameId;
-use crate::quadrant::QuadrantImage;
 use crate::transition::render_ripple_transition;
 
 /// Pre-computed tab labels: "[1] Game Name ", "[2] Game Name ", etc.
@@ -122,6 +121,32 @@ mod palette {
 }
 
 use palette::*;
+
+/// Blends an RGB color 70% toward the container color (26,26,26).
+/// Non-RGB colors are returned unchanged.
+fn blend_to_container(c: Color) -> Color {
+    match c {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            ((r as u16 * 3 + 26 * 7) / 10) as u8,
+            ((g as u16 * 3 + 26 * 7) / 10) as u8,
+            ((b as u16 * 3 + 26 * 7) / 10) as u8,
+        ),
+        other => other,
+    }
+}
+
+/// Returns an RGB color at 30% brightness, used for disabled button fills.
+/// Non-RGB colors are returned unchanged.
+fn dim(c: Color) -> Color {
+    match c {
+        Color::Rgb(r, g, b) => Color::Rgb(
+            ((r as u16 * 3) / 10) as u8,
+            ((g as u16 * 3) / 10) as u8,
+            ((b as u16 * 3) / 10) as u8,
+        ),
+        other => other,
+    }
+}
 
 // Layout constants
 const EDGE_PAD_H: u16 = 2;
@@ -252,27 +277,14 @@ fn darken_full_window(frame: &mut Frame) {
     for cy in full.y..full.bottom() {
         for cx in full.x..full.right() {
             let cell = &mut buf[(cx, cy)];
-            if let Color::Rgb(r, g, b) = cell.bg {
-                cell.set_bg(Color::Rgb(
-                    ((r as u16 * 3 + 26 * 7) / 10) as u8,
-                    ((g as u16 * 3 + 26 * 7) / 10) as u8,
-                    ((b as u16 * 3 + 26 * 7) / 10) as u8,
-                ));
-            }
-            if let Color::Rgb(r, g, b) = cell.fg {
-                cell.set_fg(Color::Rgb(
-                    ((r as u16 * 3 + 26 * 7) / 10) as u8,
-                    ((g as u16 * 3 + 26 * 7) / 10) as u8,
-                    ((b as u16 * 3 + 26 * 7) / 10) as u8,
-                ));
-            }
+            cell.set_bg(blend_to_container(cell.bg));
+            cell.set_fg(blend_to_container(cell.fg));
         }
     }
 }
 
 /// Draws a centered modal with a title, message, and [esc] Close hint.
 fn draw_modal(frame: &mut Frame, area: Rect, title: &str, message: &str, color: Color) {
-    let bg_img: Option<&QuadrantImage> = None;
     let msg_lines: Vec<&str> = message.lines().collect();
     let msg_w = msg_lines
         .iter()
@@ -289,7 +301,7 @@ fn draw_modal(frame: &mut Frame, area: Rect, title: &str, message: &str, color: 
         overlay_h,
     );
 
-    render_container(frame, overlay_rect, bg_img);
+    render_container(frame, overlay_rect);
     let inner = shrink(overlay_rect, 2, 1);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -312,7 +324,6 @@ fn draw_modal(frame: &mut Frame, area: Rect, title: &str, message: &str, color: 
 
 /// Draws a confirm dialog with selectable Yes/No buttons.
 fn draw_confirm_dialog(frame: &mut Frame, area: Rect, dialog: &crate::app::ConfirmDialog) {
-    let bg_img: Option<&QuadrantImage> = None;
     let msg_w = UnicodeWidthStr::width(dialog.message.as_str()).max(24) as u16;
     let overlay_w = (msg_w + 8).max(30).min(area.width.saturating_sub(4));
     let overlay_h = 7u16.min(area.height.saturating_sub(2));
@@ -323,7 +334,7 @@ fn draw_confirm_dialog(frame: &mut Frame, area: Rect, dialog: &crate::app::Confi
         overlay_h,
     );
 
-    render_container(frame, overlay_rect, bg_img);
+    render_container(frame, overlay_rect);
     let inner = shrink(overlay_rect, 2, 1);
 
     // Title
@@ -418,14 +429,13 @@ fn draw_help_overlay(frame: &mut Frame, area: Rect) {
         overlay_h,
     );
 
-    render_container(frame, overlay_rect, None);
+    render_container(frame, overlay_rect);
     let inner = shrink(overlay_rect, 2, 1);
     frame.render_widget(Paragraph::new(help_text), inner);
 }
 
 fn draw_game_tabs(frame: &mut Frame, app: &App, area: Rect) {
-    let bg_img = app.backgrounds.get(&app.selected_game());
-    render_container(frame, area, bg_img);
+    render_container(frame, area);
     let inner = shrink(area, 2, 1);
 
     // Build single line: "elysiae | [1] bh3 | [2] hk4e | ..."
@@ -461,7 +471,6 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
     let game = app.selected_game();
     let status = app.games.get(&game);
     let installed = status.and_then(|s| s.installed_tag.as_ref());
-    let bg_img = app.backgrounds.get(&game);
 
     // Build content lines for the info container
     let mut info_lines: Vec<Line> = Vec::new();
@@ -523,7 +532,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
         header_h.min(area.bottom().saturating_sub(y)),
     );
     if header_rect.height >= 2 {
-        render_container(frame, header_rect, bg_img);
+        render_container(frame, header_rect);
         let inner = shrink(header_rect, 2, 1);
 
         let has_resume = status.is_some_and(|s| s.has_resume);
@@ -575,7 +584,7 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
             info_h.min(area.bottom().saturating_sub(y)),
         );
         if info_rect.height >= 1 {
-            render_container(frame, info_rect, bg_img);
+            render_container(frame, info_rect);
             let inner = shrink(info_rect, 2, 1);
             frame.render_widget(Paragraph::new(info_lines), inner);
         }
@@ -583,23 +592,19 @@ fn draw_main_panel(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 /// Renders a container with #1a1a1a at 70% opacity over the existing buffer content.
-fn render_container(frame: &mut Frame, area: Rect, _bg_img: Option<&QuadrantImage>) {
+fn render_container(frame: &mut Frame, area: Rect) {
     let buf = frame.buffer_mut();
     for cy in area.y..area.bottom() {
         for cx in area.x..area.right() {
             let cell = &mut buf[(cx, cy)];
-            if let Color::Rgb(r, g, b) = cell.bg {
-                cell.set_bg(Color::Rgb(
-                    ((r as u16 * 3 + 26 * 7) / 10) as u8,
-                    ((g as u16 * 3 + 26 * 7) / 10) as u8,
-                    ((b as u16 * 3 + 26 * 7) / 10) as u8,
-                ));
+            let bg = if matches!(cell.bg, Color::Rgb(..)) {
+                blend_to_container(cell.bg)
             } else {
-                cell.set_bg(CONTAINER_BG);
-            }
+                CONTAINER_BG
+            };
             cell.set_char(' ');
             cell.set_fg(Color::Reset);
-            cell.set_style(Style::reset().bg(cell.bg));
+            cell.set_style(Style::reset().bg(bg));
         }
     }
 }
@@ -671,7 +676,6 @@ fn render_progress_bar(frame: &mut Frame, area: Rect, ratio: f64, label: &str, f
 /// Draws compact progress bars in the bottom-left corner of the main area.
 fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
     let Some(dl) = &app.download else { return };
-    let bg_img = app.backgrounds.get(&dl.game_id);
     let game = dl.game_id;
 
     // Calculate how many rows we need
@@ -706,7 +710,7 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    render_container(frame, overlay_rect, bg_img);
+    render_container(frame, overlay_rect);
     let inner = shrink(overlay_rect, 2, 1);
     let mut y = inner.y;
 
@@ -848,7 +852,6 @@ fn draw_progress_overlay(frame: &mut Frame, app: &App, area: Rect) {
 
 /// Renders game launch log in the bottom-left (same position as progress overlay).
 fn draw_launch_log(frame: &mut Frame, app: &App, area: Rect) {
-    let bg_img = app.backgrounds.get(&app.selected_game());
     let visible_lines = crate::app::VISIBLE_LOG_LINES as u16;
     let rows = visible_lines + 3; // header + padding
 
@@ -864,7 +867,7 @@ fn draw_launch_log(frame: &mut Frame, app: &App, area: Rect) {
         return;
     }
 
-    render_container(frame, overlay_rect, bg_img);
+    render_container(frame, overlay_rect);
     let inner = shrink(overlay_rect, 2, 1);
 
     // Header
@@ -903,7 +906,6 @@ fn draw_launch_log(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
-    let bg_img = app.backgrounds.get(&app.selected_game());
     let items = build_settings_items(app);
 
     let overlay_w = 60u16.min(area.width.saturating_sub(4));
@@ -915,7 +917,7 @@ fn draw_settings(frame: &mut Frame, app: &App, area: Rect) {
         overlay_h,
     );
 
-    render_container(frame, overlay_rect, bg_img);
+    render_container(frame, overlay_rect);
     let inner = shrink(overlay_rect, 2, 1);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -1008,7 +1010,7 @@ fn draw_vo_modal(frame: &mut Frame, area: Rect, modal: &crate::app::VoManagerMod
         overlay_h,
     );
 
-    render_container(frame, overlay_rect, None);
+    render_container(frame, overlay_rect);
     let inner = shrink(overlay_rect, 2, 1);
 
     let mut lines: Vec<Line> = Vec::new();
@@ -1040,8 +1042,6 @@ fn draw_vo_modal(frame: &mut Frame, area: Rect, modal: &crate::app::VoManagerMod
 }
 
 fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
-    let bg_img = app.backgrounds.get(&app.selected_game());
-
     // Right island: primary action button (always WARNING color)
     let preinstall_active = app.download.as_ref().is_some_and(|dl| {
         dl.game_id == app.selected_game() && dl.op_label == "Preinstalling..."
@@ -1103,7 +1103,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
     let keys_rect = Rect::new(area.x, area.y, keys_w, btn_island_h.min(area.height));
 
     // Render left island
-    render_container(frame, keys_rect, bg_img);
+    render_container(frame, keys_rect);
     let keys_inner = shrink(keys_rect, 2, 1);
     frame.render_widget(
         Paragraph::new(Line::from(Span::styled(
@@ -1138,15 +1138,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
         );
         let pre_disabled = preinstall_active;
         let pre_bg = if pre_disabled {
-            if let Color::Rgb(r, g, b) = SECONDARY_BG {
-                Color::Rgb(
-                    ((r as u16 * 3) / 10) as u8,
-                    ((g as u16 * 3) / 10) as u8,
-                    ((b as u16 * 3) / 10) as u8,
-                )
-            } else {
-                SECONDARY_BG
-            }
+            dim(SECONDARY_BG)
         } else {
             SECONDARY_BG
         };
@@ -1175,16 +1167,7 @@ fn draw_action_bar(frame: &mut Frame, app: &App, area: Rect) {
 
     // Render right button (solid WARNING background)
     let btn_bg = if btn_disabled {
-        // 30% brightness of WARNING
-        if let Color::Rgb(r, g, b) = WARNING {
-            Color::Rgb(
-                ((r as u16 * 3) / 10) as u8,
-                ((g as u16 * 3) / 10) as u8,
-                ((b as u16 * 3) / 10) as u8,
-            )
-        } else {
-            WARNING
-        }
+        dim(WARNING)
     } else {
         WARNING
     };
@@ -1223,29 +1206,22 @@ fn primary_button(app: &App) -> (&'static str, &'static str) {
     match app.current_view {
         View::Settings => ("Settings", "s"),
         _ => {
-            let (label, _) = game_action_label(app, app.selected_game());
+            let status = app.games.get(&app.selected_game());
+            let installed = status.and_then(|s| s.installed_tag.as_ref()).is_some();
+            let has_update = status
+                .and_then(|s| s.update_info.as_ref())
+                .is_some_and(|i| i.update_available);
+            let label = if status.is_some_and(|s| s.has_resume) {
+                "Resume"
+            } else if has_update {
+                "Update"
+            } else if installed {
+                "Launch"
+            } else {
+                "Get Game"
+            };
             (label, "⏎")
         }
-    }
-}
-
-/// Derives the action label for a game based on its current state.
-fn game_action_label(app: &App, game: GameId) -> (&'static str, bool) {
-    let status = app.games.get(&game);
-    let installed = status.and_then(|s| s.installed_tag.as_ref()).is_some();
-    let has_update = status
-        .and_then(|s| s.update_info.as_ref())
-        .is_some_and(|i| i.update_available);
-    let has_resume = status.is_some_and(|s| s.has_resume);
-
-    if has_resume {
-        ("Resume", false)
-    } else if has_update {
-        ("Update", false)
-    } else if installed {
-        ("Launch", true)
-    } else {
-        ("Get Game", false)
     }
 }
 
