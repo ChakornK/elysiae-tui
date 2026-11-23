@@ -8,7 +8,6 @@ mod backgrounds;
 mod cli;
 mod components;
 mod config;
-mod disk;
 mod game;
 mod http;
 mod launcher;
